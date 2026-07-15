@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project-specific: runtime user data (contains real onboarding/financial inputs)
+debt-shield-extension/debt_shield_users.json

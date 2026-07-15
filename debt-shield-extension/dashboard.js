@@ -360,6 +360,12 @@ function saveDebt() {
     alert('Please fill in all fields.'); return;
   }
 
+  // Heads-up, not a hard stop: if the payment doesn't even cover the
+  // interest, the balance grows instead of shrinking at that rate.
+  if (total > 0 && monthly < total * (apr / 100 / 12)) {
+    alert(`Heads up: this monthly payment doesn't cover the interest at ${apr}% APR, so the balance will grow over time instead of shrinking. You can still save if that's expected.`);
+  }
+
   const editId = document.getElementById('debt-edit-id').value;
   if (editId) {
     const d = debts.find(d => d.id === +editId);
@@ -398,7 +404,14 @@ function saveProfile() {
     alert('Please fill in all profile fields.'); return;
   }
 
-  profile = { income, expenses, savings, credit, var_income: profile.var_income, var_expenses: profile.var_expenses };
+  // only drop the CSV-derived volatility if income or expenses actually
+  // changed. savings/credit-only edits shouldn't invalidate it
+  const meansChanged = income !== profile.income || expenses !== profile.expenses;
+  profile = {
+    income, expenses, savings, credit,
+    var_income:   meansChanged ? null : profile.var_income,
+    var_expenses: meansChanged ? null : profile.var_expenses,
+  };
   updateStats();
   renderGoals(); // re-compute ETAs with new surplus
   syncAndRefresh();
@@ -486,14 +499,13 @@ function parseProfileCSV(text) {
     rows.push({ date, amount, balance });
   }
   if (rows.length === 0) { alert('No valid rows found in CSV.'); return; }
-  rows.sort((a, b) => {
-    const dateA = new Date(`${a.date}T${a.time}`);
-    const dateB = new Date(`${b.date}T${b.time}`);
-    return dateA - dateB;
-  });
+  rows.sort((a, b) => a.date - b.date);
   const b0 = Math.round(rows[rows.length - 1].balance * 100) / 100;
+
+  const filteredRows = filterOneOffTransactions(rows);
+
   const byMonth = {};
-  for (const row of rows) {
+  for (const row of filteredRows) {
     const key = `${row.date.getFullYear()}-${String(row.date.getMonth()+1).padStart(2,'0')}`;
     if (!byMonth[key]) byMonth[key] = { income: 0, expenses: 0 };
     if (row.amount > 0) byMonth[key].income  += row.amount;
@@ -502,6 +514,7 @@ function parseProfileCSV(text) {
   const monthKeys  = Object.keys(byMonth).sort();
   const incomeArr  = monthKeys.map(k => byMonth[k].income);
   const expenseArr = monthKeys.map(k => byMonth[k].expenses);
+
   const mu_I  = Math.round((incomeArr.reduce((s,v) => s+v, 0) / incomeArr.length) * 100) / 100;
   const mu_E  = Math.round((expenseArr.reduce((s,v) => s+v, 0) / expenseArr.length) * 100) / 100;
   const var_I = incomeArr.length  < 2 ? null : incomeArr.reduce((s,v)  => s + (v - mu_I)**2, 0) / (incomeArr.length - 1);
@@ -512,6 +525,49 @@ function parseProfileCSV(text) {
   document.getElementById('prof-csv-expenses').textContent = fmtUSD(mu_E);
   document.getElementById('prof-csv-months').textContent   = monthKeys.length;
   document.getElementById('prof-csv-result').classList.add('visible');
+}
+
+function median(arr) {
+  if (arr.length === 0) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function filterOneOffTransactions(rows) {
+  // a large transaction only counts as a one-off if nothing else in the
+  // file looks like it. if a similar-sized transaction (same sign, within
+  // RECUR_TOLERANCE) shows up in enough other months, it's recurring
+  // instead - salary shows up close to every month, a quarterly bonus
+  // shows up every few months, a real one-off transfer shows up nowhere
+  // else. size alone can't tell these apart, recurrence can.
+  const LARGE_MULTIPLE  = 3;
+  const RECUR_TOLERANCE = 0.20;
+  const RECUR_MIN       = 2;
+
+  const excluded = new Set();
+  for (const sign of [1, -1]) {
+    const txns = rows.filter(r => Math.sign(r.amount) === sign);
+    if (txns.length === 0) continue;
+    const medTxn = median(txns.map(r => Math.abs(r.amount)));
+    const threshold = medTxn * LARGE_MULTIPLE;
+    if (threshold === 0) continue;
+
+    for (const row of txns) {
+      const amt = Math.abs(row.amount);
+      if (amt <= threshold) continue;
+      const rowMonth = `${row.date.getFullYear()}-${row.date.getMonth()}`;
+      const monthsWithSimilar = new Set();
+      for (const other of txns) {
+        if (other === row) continue;
+        const otherMonth = `${other.date.getFullYear()}-${other.date.getMonth()}`;
+        if (otherMonth === rowMonth) continue;
+        if (Math.abs(Math.abs(other.amount) - amt) <= RECUR_TOLERANCE * amt) monthsWithSimilar.add(otherMonth);
+      }
+      if (monthsWithSimilar.size < RECUR_MIN) excluded.add(row);
+    }
+  }
+  return rows.filter(r => !excluded.has(r));
 }
 
 function splitCSVLine(line) {

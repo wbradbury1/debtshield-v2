@@ -66,6 +66,8 @@ def get_score(name: str):
     adjusted_expenses  = max(0.0, user.average_expenses - total_monthly_debt)
 
     # --- Variance: use CSV-derived values if available, else ±20% heuristic ---
+    # 20% is a guess, unfitted. only hits accounts with no CSV stats (test
+    # users, direct API calls) - normal onboarding always sends real variance
     if user.var_income is not None:
         var_I = user.var_income
     else:
@@ -78,6 +80,17 @@ def get_score(name: str):
         var_E = user.var_expenses
     else:
         var_E = (adjusted_expenses * 0.20) ** 2
+
+    # cap CV so a monthly draw has ~10% chance of going negative (can't
+    # actually happen for income/expenses). P(X<0) = Phi(-1/CV) for a
+    # normal draw, so CV <= 1/Phi^-1(1-p). p=0.10 -> Phi^-1(0.90)=1.2816
+    # -> CV <= 0.78. old value was a flat 1.0 guess (~16% chance). change
+    # p and look up Phi^-1(1-p) to retune, don't just pick a new CV
+    MAX_CV = 0.78
+    if user.average_income > 0:
+        var_I = min(var_I, (user.average_income * MAX_CV) ** 2)
+    if user.average_expenses > 0:
+        var_E = min(var_E, (user.average_expenses * MAX_CV) ** 2)
 
     score = shield_score(
         mu_I  = user.average_income,

@@ -53,6 +53,15 @@ function validate(step) {
         showError('err-3'); return false;
       }
     }
+    // Heads-up, not a hard stop: if the payment doesn't even cover the
+    // interest, the balance grows instead of shrinking at that rate.
+    const negAm = debts.find(d => {
+      const total = parseFloat(d.total), monthly = parseFloat(d.monthly), apr = parseFloat(d.apr);
+      return total > 0 && monthly < total * (apr / 100 / 12);
+    });
+    if (negAm) {
+      alert(`Heads up: "${negAm.label || negAm.category}"'s monthly payment doesn't cover the interest at ${negAm.apr}% APR, so that balance will grow over time instead of shrinking. You can still continue if that's expected.`);
+    }
   }
   return true;
 }
@@ -458,20 +467,19 @@ function parseCSV(text, filename) {
   }
 
   // Sort chronologically oldest → newest
-  rows.sort((a, b) => {
-    const dateA = new Date(`${a.date}T${a.time}`);
-    const dateB = new Date(`${b.date}T${b.time}`);
-    return dateA - dateB;
-  });
+  rows.sort((a, b) => a.date - b.date);
 
   // B0 = most recent account balance (the current cash position)
   const b0 = rows.length ? rows[rows.length - 1].balance : 0;
+
+  const filteredRows = filterOneOffTransactions(rows);
+  const outlierCount = rows.length - filteredRows.length;
 
   // Group by calendar month to compute per-month income and expenses
   // Expenses here are INCLUSIVE of debt payments — the backend strips
   // debt payments out before passing mu_E to the simulator.
   const byMonth = {};
-  for (const row of rows) {
+  for (const row of filteredRows) {
     const key = `${row.date.getFullYear()}-${String(row.date.getMonth()+1).padStart(2,'0')}`;
     if (!byMonth[key]) byMonth[key] = { income: 0, expenses: 0 };
     if (row.amount > 0) byMonth[key].income   += row.amount;
@@ -510,6 +518,9 @@ function parseCSV(text, filename) {
   if (numMonths < 3) {
     noteEl.innerHTML = '⚠ Less than 3 months of data — estimates may be less reliable.';
     noteEl.style.color = 'var(--yellow)';
+  } else if (outlierCount > 0) {
+    noteEl.innerHTML = `Based on ${numMonths} full months of transactions. ${outlierCount} unusually large one-off transaction${outlierCount === 1 ? '' : 's'} excluded from the averages.`;
+    noteEl.style.color = 'var(--text-muted)';
   } else {
     noteEl.innerHTML = `Based on ${numMonths} full months of transactions.`;
     noteEl.style.color = 'var(--text-muted)';
@@ -564,6 +575,47 @@ function splitCSVLine(line) {
   return result;
 }
 
+function median(arr) {
+  if (arr.length === 0) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+function filterOneOffTransactions(rows) {
+  // a large transaction only counts as a one-off if nothing else in the
+  // file looks like it. if a similar-sized transaction (same sign, within
+  // RECUR_TOLERANCE) shows up in enough other months, it's recurring
+  // instead - salary shows up close to every month, a quarterly bonus
+  // shows up every few months, a real one-off transfer shows up nowhere
+  // else. size alone can't tell these apart, recurrence can.
+  const LARGE_MULTIPLE  = 3;
+  const RECUR_TOLERANCE = 0.20;
+  const RECUR_MIN       = 2;
+
+  const excluded = new Set();
+  for (const sign of [1, -1]) {
+    const txns = rows.filter(r => Math.sign(r.amount) === sign);
+    if (txns.length === 0) continue;
+    const medTxn = median(txns.map(r => Math.abs(r.amount)));
+    const threshold = medTxn * LARGE_MULTIPLE;
+    if (threshold === 0) continue;
+
+    for (const row of txns) {
+      const amt = Math.abs(row.amount);
+      if (amt <= threshold) continue;
+      const rowMonth = `${row.date.getFullYear()}-${row.date.getMonth()}`;
+      const monthsWithSimilar = new Set();
+      for (const other of txns) {
+        if (other === row) continue;
+        const otherMonth = `${other.date.getFullYear()}-${other.date.getMonth()}`;
+        if (otherMonth === rowMonth) continue;
+        if (Math.abs(Math.abs(other.amount) - amt) <= RECUR_TOLERANCE * amt) monthsWithSimilar.add(otherMonth);
+      }
+      if (monthsWithSimilar.size < RECUR_MIN) excluded.add(row);
+    }
+  }
+  return rows.filter(r => !excluded.has(r));
+}
 function mean(arr) {
   const m = arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0;
   return Math.round(m * 100) / 100;
