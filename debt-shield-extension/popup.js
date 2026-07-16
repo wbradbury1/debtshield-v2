@@ -208,6 +208,11 @@ function attachEvents() {
     window.close();
   });
 
+  document.getElementById('q-onboarding').addEventListener('click', () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('onboarding.html') });
+    window.close();
+  });
+
   // Quick actions
   document.getElementById('q-scan').addEventListener('click', () => {
     notifyTabs({ type: 'MANUAL_SCAN' }); window.close();

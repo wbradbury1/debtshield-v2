@@ -773,8 +773,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ── Nav ───────────────────────────────────────────────────
-  document.getElementById('nav-dashboard')?.addEventListener('click', () => showPage('dashboard'));
-  document.getElementById('nav-learn')    ?.addEventListener('click', () => showPage('learn'));
+  document.getElementById('nav-dashboard')  ?.addEventListener('click', () => showPage('dashboard'));
+  document.getElementById('nav-learn')      ?.addEventListener('click', () => showPage('learn'));
+  document.getElementById('nav-onboarding') ?.addEventListener('click', () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('onboarding.html') });
+  });
 
   // ── Tabs ──────────────────────────────────────────────────
   document.getElementById('tab-goals')  ?.addEventListener('click', () => showTab('goals'));
