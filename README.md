@@ -12,6 +12,10 @@ On top of these three, v2 introduces CV as an explicit check for the first time:
 
 `data/` holds three example transaction sets, sourced via the Open Banking Project sandbox and cleaned into CSV files. Account 1 is distressed, with payday loans, subprime credit, and frequent negative balances. Account 2 stays healthy, with stable income and balance never negative. Account 3 sits in between, with modest income and risk from expense timing rather than debt.
 
+## Onboarding debts
+
+Declared debts must already appear in the uploaded statement. The backend subtracts each declared monthly payment from average expenses before simulating, then charges the debt on its own schedule with interest and payoff, so each payment is counted exactly once. Declaring a debt the statement never saw subtracts it from expenses it was never part of, and the score comes out too optimistic by that payment. The reverse holds too. An undeclared debt stays inside expenses as a flat monthly outflow, skipping the simulator's amortisation schedule entirely. Its interest never accrues and its balance never drops.
+
 ## Default definiton
 
 v1 models default as a first-passage barrier crossing. A household's monthly cash balance (income minus expenses minus debt payments) follows a random walk, and default triggers the first month that balance drops below zero. The mechanism matches a Black-Cox model, the first-passage structural credit framework used for corporate default risk, with a household's cash balance standing in for a firm's asset value.
@@ -20,7 +24,9 @@ v2 replaces the single-month trigger with a continuous Parisian barrier conditio
 
 ## Monte Carlo
 
-Monte Carlo simulation estimates probability of default, run over 200,000 independent paths. Each path simulates 12 months of income and expenses as correlated random shocks. Each month the balance moves by income minus living expenses minus scheduled debt payments, and any remaining debt balance accrues interest at its own rate, until the barrier condition triggers or the year ends. Expenses as entered include debt payments. The backend strips these out before simulating: the simulator charges each debt on its own schedule, and leaving them in would count the same payment twice. Probability of default is the fraction of paths that trigger it.
+Monte Carlo simulation estimates probability of default, run over 200,000 independent paths. Each path simulates 12 months of income and expenses as random shocks, correlated using a Pearson correlation estimated directly from the user's own monthly CSV data. Accounts with fewer than 3 months of data, or a flat (zero-variance) income or expense series, default to independent shocks instead — there isn't enough signal to estimate a correlation from. Each month the balance moves by income minus living expenses minus scheduled debt payments, and any remaining debt balance accrues interest at its own rate, until the barrier condition triggers or the year ends. Expenses as entered include debt payments. The backend strips these out before simulating: the simulator charges each debt on its own schedule, and leaving them in would count the same payment twice. Probability of default is the fraction of paths that trigger it.
+
+
 
 ## Shield Score
 
@@ -48,3 +54,7 @@ uvicorn main:app --reload
 Backend runs at `http://127.0.0.1:8000`. Then load `debt-shield-extension/` as an unpacked extension in Chrome (`chrome://extensions` → Developer mode → Load unpacked).
 
 **Note:** regenerating `requirements.txt` from PowerShell with `>` writes UTF-16 and breaks pip. Use `pip freeze | Out-File -Encoding utf8 requirements.txt`, or run it from cmd.
+
+## Extension 1 (planned): confidence interval
+
+The score is a Monte Carlo estimate, so it carries sampling error; a 95% CI from the binomial standard error is the first planned extension. The engine runs on a fixed seed by default: identical inputs always reproduce the identical score, so the CI will describe error across seeds rather than run-to-run wobble. `/score/` accepts an optional seed parameter for inspecting that wobble directly.

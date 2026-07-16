@@ -1,28 +1,29 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 
 class SavingsGoal(BaseModel):
     name: str
-    target_amount: float
+    target_amount: float = Field(ge=0)
     priority: int = 1           # 1 = highest priority; lower number = more weight
     timeframe_months: Optional[int] = None  # deprecated, kept for backward compat
 
 class Debt(BaseModel):
     category: str
     label: str
-    total_amount: float
-    monthly_payment: float
-    apr: float
-    months_remaining: Optional[float] = None
+    total_amount: float = Field(ge=0)
+    monthly_payment: float = Field(ge=0)
+    apr: float = Field(ge=0, le=100)
+    months_remaining: Optional[float] = Field(default=None, gt=0)
 
 class UserOnboarding(BaseModel):
     name: str
-    current_savings: float
-    average_income: float
-    average_expenses: float
+    current_savings: float   # NOT bounded — overdrafts are legitimately negative
+    average_income: float = Field(ge=0)
+    average_expenses: float = Field(ge=0)
     var_income: Optional[float] = None
     var_expenses: Optional[float] = None
-    credit_limit: float
-    savings_allocation_pct: float = 50.0   # % of monthly surplus allocated to savings goals
+    rho_ie: Optional[float] = None   # Pearson correlation between monthly income/expense shocks, estimated from CSV
+    credit_limit: float = Field(ge=0)
+    savings_allocation_pct: float = Field(default=50.0, ge=0, le=100)   # % of monthly surplus allocated to savings goals
     savings_goals: List[SavingsGoal]
     debts: List[Debt] = []

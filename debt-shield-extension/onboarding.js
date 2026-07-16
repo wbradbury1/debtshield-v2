@@ -309,6 +309,7 @@ async function submitData() {
     average_expenses:       csvData.mu_E,
     var_income:             csvData.var_I,
     var_expenses:           csvData.var_E,
+    rho_ie:                 csvData.rho_ie,
     credit_limit:           parseFloat(document.getElementById('credit').value) || 0,
     savings_allocation_pct: savingsAllocPct,
     savings_goals: goals.map((g, i) => ({
@@ -475,21 +476,11 @@ function parseCSV(text, filename) {
   const filteredRows = filterOneOffTransactions(rows);
   const outlierCount = rows.length - filteredRows.length;
 
-  // Group by calendar month to compute per-month income and expenses
+  // Group by calendar month to compute per-month income and expenses.
   // Expenses here are INCLUSIVE of debt payments — the backend strips
   // debt payments out before passing mu_E to the simulator.
-  const byMonth = {};
-  for (const row of filteredRows) {
-    const key = `${row.date.getFullYear()}-${String(row.date.getMonth()+1).padStart(2,'0')}`;
-    if (!byMonth[key]) byMonth[key] = { income: 0, expenses: 0 };
-    if (row.amount > 0) byMonth[key].income   += row.amount;
-    else                byMonth[key].expenses  += Math.abs(row.amount);
-  }
-
-  const monthKeys  = Object.keys(byMonth).sort();
-  const numMonths  = monthKeys.length;
-  const incomeArr  = monthKeys.map(k => byMonth[k].income);
-  const expenseArr = monthKeys.map(k => byMonth[k].expenses);
+  const { monthKeys, incomeArr, expenseArr } = groupByMonth(filteredRows);
+  const numMonths = monthKeys.length;
 
   const mu_I  = mean(incomeArr);
   const mu_E  = mean(expenseArr);
@@ -498,12 +489,13 @@ function parseCSV(text, filename) {
   // Note: var_E is the variance of total monthly outgoings including debt payments.
   // Subtracting a fixed constant (debt payments) from mu_E in the backend does NOT
   // change the variance, so var_E is passed through to the simulator unchanged.
+  const rho_ie = pearsonCorrelation(incomeArr, expenseArr);
 
   // Round display/storage values to 2dp; keep raw variances for scoring precision
   const b0r   = Math.round(b0   * 100) / 100;
   const mu_Ir = Math.round(mu_I * 100) / 100;
   const mu_Er = Math.round(mu_E * 100) / 100;
-  csvData = { b0: b0r, mu_I: mu_Ir, mu_E: mu_Er, var_I, var_E, months: numMonths };
+  csvData = { b0: b0r, mu_I: mu_Ir, mu_E: mu_Er, var_I, var_E, rho_ie, months: numMonths };
 
   // ── Render preview ──
   document.getElementById('csv-filename').textContent    = `${filename} — ${rows.length} transactions`;
@@ -546,97 +538,11 @@ function parseCSV(text, filename) {
   updateAllocDisplay(document.getElementById('alloc-slider').value);
 }
 
-function parseDate(str) {
-  // ISO: YYYY-MM-DD (optionally with a time suffix) - unambiguous, matched
-  // explicitly so it never falls through to the generic parse below.
-  const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) {
-    const d = new Date(`${iso[1]}-${iso[2]}-${iso[3]}`);
-    if (!isNaN(d.getTime())) return d;
-  }
-
-  // DD/MM/YYYY or DD-MM-YYYY - our CSV data's actual format. Matched
-  // explicitly and rebuilt as an unambiguous YYYY-MM-DD string before ever
-  // touching Date(). Previously this function tried `new Date(str)` first,
-  // which silently reads "02/01/2025" as US MM/DD (Feb 1st) - so every day
-  // <=12 got its day/month swapped. See debtshield-v2_variance-inflation-issue.md.
-  const dmy = str.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
-  if (dmy) {
-    const d = new Date(`${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`);
-    if (!isNaN(d.getTime())) return d;
-  }
-
-  // No MM/DD fallback: our data is DD/MM only. A generic Date(str) call here
-  // would reintroduce the exact ambiguity this rewrite removes, for anything
-  // that isn't already covered above.
-  return null;
-}
-
-function splitCSVLine(line) {
-  // Handle quoted fields that may contain commas; strip Windows carriage returns
-  const result = []; let current = ''; let inQuotes = false;
-  for (const ch of line) {
-    if (ch === '\r') continue; // skip carriage returns from Windows exports
-    if (ch === '"') { inQuotes = !inQuotes; }
-    else if (ch === ',' && !inQuotes) { result.push(current.trim()); current = ''; }
-    else { current += ch; }
-  }
-  result.push(current.trim());
-  return result;
-}
-
-function median(arr) {
-  if (arr.length === 0) return 0;
-  const sorted = [...arr].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
-function filterOneOffTransactions(rows) {
-  // a large transaction only counts as a one-off if nothing else in the
-  // file looks like it. if a similar-sized transaction (same sign, within
-  // RECUR_TOLERANCE) shows up in enough other months, it's recurring
-  // instead - salary shows up close to every month, a quarterly bonus
-  // shows up every few months, a real one-off transfer shows up nowhere
-  // else. size alone can't tell these apart, recurrence can.
-  const LARGE_MULTIPLE  = 3;
-  const RECUR_TOLERANCE = 0.20;
-  const RECUR_MIN       = 2;
-
-  const excluded = new Set();
-  for (const sign of [1, -1]) {
-    const txns = rows.filter(r => Math.sign(r.amount) === sign);
-    if (txns.length === 0) continue;
-    const medTxn = median(txns.map(r => Math.abs(r.amount)));
-    const threshold = medTxn * LARGE_MULTIPLE;
-    if (threshold === 0) continue;
-
-    for (const row of txns) {
-      const amt = Math.abs(row.amount);
-      if (amt <= threshold) continue;
-      const rowMonth = `${row.date.getFullYear()}-${row.date.getMonth()}`;
-      const monthsWithSimilar = new Set();
-      for (const other of txns) {
-        if (other === row) continue;
-        const otherMonth = `${other.date.getFullYear()}-${other.date.getMonth()}`;
-        if (otherMonth === rowMonth) continue;
-        if (Math.abs(Math.abs(other.amount) - amt) <= RECUR_TOLERANCE * amt) monthsWithSimilar.add(otherMonth);
-      }
-      if (monthsWithSimilar.size < RECUR_MIN) excluded.add(row);
-    }
-  }
-  return rows.filter(r => !excluded.has(r));
-}
-function mean(arr) {
-  const m = arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0;
-  return Math.round(m * 100) / 100;
-}
-function variance(arr, mu) {
-  if (arr.length < 2) return 0;
-  // sample variance — NOT rounded, passed to backend as-is for precision
-  return arr.reduce((s, v) => s + (v - mu) ** 2, 0) / (arr.length - 1);
-}
-
 /* ─── HELPERS ─── */
+// parseDate, splitCSVLine, median, mean, variance, filterOneOffTransactions,
+// groupByMonth, pearsonCorrelation now live in csv-utils.js (loaded before
+// this file in onboarding.html) — shared with dashboard.js so the two
+// pipelines can't drift apart again.
 function resetCSV() {
   csvData = null;
   document.getElementById('csv-preview').classList.remove('visible');

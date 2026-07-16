@@ -172,6 +172,7 @@ body::before {
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem; }
 .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem; }
 .panel-title { font-size: 1rem; font-weight: 700; }
+.panel-hint { font-size: 0.75rem; color: var(--text-muted); margin: -0.6rem 0 1rem; font-family: 'DM Mono', monospace; }
 .panel-add-btn {
   background: var(--green-dim); border: 1px solid var(--green-mid);
   border-radius: 8px; padding: 0.35rem 0.8rem;
@@ -507,6 +508,7 @@ body::before {
           <div class="panel-title">Debts</div>
           <button class="panel-add-btn red" id="add-debt-btn">+ Add Debt</button>
         </div>
+        <div class="panel-hint">Only add debts paid from the uploaded account — payments not in your statement will skew the score.</div>
         <div class="item-rows" id="debts-list">
           <div class="empty-state">No debts recorded</div>
         </div>
@@ -662,6 +664,7 @@ body::before {
   </div>
 </div>
 
+<script src="csv-utils.js"></script>
 <script src="dashboard.js"></script>
 </body>
 </html>

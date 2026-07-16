@@ -5,13 +5,12 @@ the `parseDate` bug and adding
 clamp logging (`variance_clamped` field + `WARNING` log line in `main.py`'s
 `get_score`, which fires when a variance exceeds `MAX_CV = 0.78`).
 
-Recorded: 2026-07-16.
 
-| Account | File | Income CV | Expense CV | `variance_clamped` | Shield Score |
-|---|---|---|---|---|---|
-| 1 (distressed) | `Bank Account 1.csv` | 0.304 | 0.075 | false | 0.1 |
-| 2 (healthy) | `Bank Account 2.csv` | 0.050 | 0.050 | false | 100 |
-| 3 (in-between) | `Bank Account 3.csv` | 0.718 | 0.068 | false | 70.6 |
+| Account | File | Income CV | Expense CV | `rho_ie` | `variance_clamped` | Shield Score |
+|---|---|---|---|---|---|---|
+| 1 (distressed) | `Bank Account 1.csv` | 0.304 | 0.075 | 0.078 | false | 0.1 |
+| 2 (healthy) | `Bank Account 2.csv` | 0.050 | 0.050 | 0.122 | false | 100 |
+| 3 (in-between) | `Bank Account 3.csv` | 0.718 | 0.068 | -0.580 | false | 68.5 |
 
 CVs computed as `sqrt(var_income or var_expenses) / mean`, from the stored
 profile after onboarding (`GET /user/{name}`). None of the three clamp - the

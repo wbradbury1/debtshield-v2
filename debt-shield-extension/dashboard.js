@@ -9,7 +9,7 @@ const FALLBACK_SCORE = 70;
 ════════════════════════════════════════ */
 let goals   = [];   // [{ id, name, target, priority }] — sorted by priority asc
 let debts   = [];
-let profile = { income: 0, expenses: 0, savings: 0, credit: 0, var_income: null, var_expenses: null };
+let profile = { income: 0, expenses: 0, savings: 0, credit: 0, var_income: null, var_expenses: null, rho_ie: null };
 let savingsAllocPct = 50;  // % of monthly surplus going to goals
 
 const DEFAULT_APR = {
@@ -404,13 +404,15 @@ function saveProfile() {
     alert('Please fill in all profile fields.'); return;
   }
 
-  // only drop the CSV-derived volatility if income or expenses actually
-  // changed. savings/credit-only edits shouldn't invalidate it
+  // only drop the CSV-derived volatility (and correlation, same reasoning)
+  // if income or expenses actually changed. savings/credit-only edits
+  // shouldn't invalidate it
   const meansChanged = income !== profile.income || expenses !== profile.expenses;
   profile = {
     income, expenses, savings, credit,
     var_income:   meansChanged ? null : profile.var_income,
     var_expenses: meansChanged ? null : profile.var_expenses,
+    rho_ie:       meansChanged ? null : profile.rho_ie,
   };
   updateStats();
   renderGoals(); // re-compute ETAs with new surplus
@@ -432,6 +434,7 @@ async function syncAndRefresh() {
     average_expenses:       profile.expenses,
     var_income:             profile.var_income,
     var_expenses:           profile.var_expenses,
+    rho_ie:                 profile.rho_ie,
     credit_limit:           profile.credit,
     savings_allocation_pct: savingsAllocPct,
     savings_goals: goals.map(g => ({
@@ -504,22 +507,14 @@ function parseProfileCSV(text) {
 
   const filteredRows = filterOneOffTransactions(rows);
 
-  const byMonth = {};
-  for (const row of filteredRows) {
-    const key = `${row.date.getFullYear()}-${String(row.date.getMonth()+1).padStart(2,'0')}`;
-    if (!byMonth[key]) byMonth[key] = { income: 0, expenses: 0 };
-    if (row.amount > 0) byMonth[key].income  += row.amount;
-    else                byMonth[key].expenses += Math.abs(row.amount);
-  }
-  const monthKeys  = Object.keys(byMonth).sort();
-  const incomeArr  = monthKeys.map(k => byMonth[k].income);
-  const expenseArr = monthKeys.map(k => byMonth[k].expenses);
+  const { monthKeys, incomeArr, expenseArr } = groupByMonth(filteredRows);
 
-  const mu_I  = Math.round((incomeArr.reduce((s,v) => s+v, 0) / incomeArr.length) * 100) / 100;
-  const mu_E  = Math.round((expenseArr.reduce((s,v) => s+v, 0) / expenseArr.length) * 100) / 100;
-  const var_I = incomeArr.length  < 2 ? null : incomeArr.reduce((s,v)  => s + (v - mu_I)**2, 0) / (incomeArr.length - 1);
-  const var_E = expenseArr.length < 2 ? null : expenseArr.reduce((s,v) => s + (v - mu_E)**2, 0) / (expenseArr.length - 1);
-  pendingProfileCSV = { b0, mu_I, mu_E, var_I, var_E, months: monthKeys.length };
+  const mu_I   = mean(incomeArr);
+  const mu_E   = mean(expenseArr);
+  const var_I  = variance(incomeArr, mu_I);
+  const var_E  = variance(expenseArr, mu_E);
+  const rho_ie = pearsonCorrelation(incomeArr, expenseArr);
+  pendingProfileCSV = { b0, mu_I, mu_E, var_I, var_E, rho_ie, months: monthKeys.length };
   document.getElementById('prof-csv-b0').textContent       = fmtUSD(b0);
   document.getElementById('prof-csv-income').textContent   = fmtUSD(mu_I);
   document.getElementById('prof-csv-expenses').textContent = fmtUSD(mu_E);
@@ -527,86 +522,10 @@ function parseProfileCSV(text) {
   document.getElementById('prof-csv-result').classList.add('visible');
 }
 
-function median(arr) {
-  if (arr.length === 0) return 0;
-  const sorted = [...arr].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
-
-function filterOneOffTransactions(rows) {
-  // a large transaction only counts as a one-off if nothing else in the
-  // file looks like it. if a similar-sized transaction (same sign, within
-  // RECUR_TOLERANCE) shows up in enough other months, it's recurring
-  // instead - salary shows up close to every month, a quarterly bonus
-  // shows up every few months, a real one-off transfer shows up nowhere
-  // else. size alone can't tell these apart, recurrence can.
-  const LARGE_MULTIPLE  = 3;
-  const RECUR_TOLERANCE = 0.20;
-  const RECUR_MIN       = 2;
-
-  const excluded = new Set();
-  for (const sign of [1, -1]) {
-    const txns = rows.filter(r => Math.sign(r.amount) === sign);
-    if (txns.length === 0) continue;
-    const medTxn = median(txns.map(r => Math.abs(r.amount)));
-    const threshold = medTxn * LARGE_MULTIPLE;
-    if (threshold === 0) continue;
-
-    for (const row of txns) {
-      const amt = Math.abs(row.amount);
-      if (amt <= threshold) continue;
-      const rowMonth = `${row.date.getFullYear()}-${row.date.getMonth()}`;
-      const monthsWithSimilar = new Set();
-      for (const other of txns) {
-        if (other === row) continue;
-        const otherMonth = `${other.date.getFullYear()}-${other.date.getMonth()}`;
-        if (otherMonth === rowMonth) continue;
-        if (Math.abs(Math.abs(other.amount) - amt) <= RECUR_TOLERANCE * amt) monthsWithSimilar.add(otherMonth);
-      }
-      if (monthsWithSimilar.size < RECUR_MIN) excluded.add(row);
-    }
-  }
-  return rows.filter(r => !excluded.has(r));
-}
-
-function splitCSVLine(line) {
-  const result = []; let current = ''; let inQuotes = false;
-  for (const ch of line) {
-    if (ch === '\r') continue;
-    if (ch === '"') { inQuotes = !inQuotes; }
-    else if (ch === ',' && !inQuotes) { result.push(current.trim()); current = ''; }
-    else { current += ch; }
-  }
-  result.push(current.trim());
-  return result;
-}
-
-function parseDate(str) {
-  // ISO: YYYY-MM-DD (optionally with a time suffix) - unambiguous, matched
-  // explicitly so it never falls through to the generic parse below.
-  const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) {
-    const d = new Date(`${iso[1]}-${iso[2]}-${iso[3]}`);
-    if (!isNaN(d.getTime())) return d;
-  }
-
-  // DD/MM/YYYY or DD-MM-YYYY - our CSV data's actual format. Matched
-  // explicitly and rebuilt as an unambiguous YYYY-MM-DD string before ever
-  // touching Date(). Previously this function tried `new Date(str)` first,
-  // which silently reads "02/01/2025" as US MM/DD (Feb 1st) - so every day
-  // <=12 got its day/month swapped. See debtshield-v2_variance-inflation-issue.md.
-  const dmy = str.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
-  if (dmy) {
-    const d = new Date(`${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`);
-    if (!isNaN(d.getTime())) return d;
-  }
-
-  // No MM/DD fallback: our data is DD/MM only. A generic Date(str) call here
-  // would reintroduce the exact ambiguity this rewrite removes, for anything
-  // that isn't already covered above.
-  return null;
-}
+// median, filterOneOffTransactions, splitCSVLine, parseDate, mean, variance,
+// groupByMonth, pearsonCorrelation now live in csv-utils.js (loaded before
+// this file in dashboard.html) — shared with onboarding.js so the two
+// pipelines can't drift apart again.
 
 function applyProfileCSV() {
   if (!pendingProfileCSV) return;
@@ -616,6 +535,7 @@ function applyProfileCSV() {
   profile.expenses     = csv.mu_E;
   profile.var_income   = csv.var_I;
   profile.var_expenses = csv.var_E;
+  profile.rho_ie       = csv.rho_ie;
   document.getElementById('prof-savings').value  = csv.b0;
   document.getElementById('prof-income').value   = csv.mu_I;
   document.getElementById('prof-expenses').value = csv.mu_E;
@@ -726,6 +646,7 @@ async function init() {
         credit:       data.credit_limit      || 0,
         var_income:   data.var_income  ?? null,
         var_expenses: data.var_expenses ?? null,
+        rho_ie:       data.rho_ie ?? null,
       };
       savingsAllocPct = data.savings_allocation_pct ?? 50;
 
