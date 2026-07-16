@@ -126,6 +126,57 @@ function groupByMonth(rows) {
   };
 }
 
+/* ════════════════════════════════════════
+   DEBT PAYMENT GUIDANCE
+   Shared between the onboarding debt form and the dashboard debt modal so
+   the two can't drift apart the way parseDate once did.
+════════════════════════════════════════ */
+
+function fmtGBP(n) {
+  return '£' + parseFloat(n || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function annuityPayment(balance, aprPct, months) {
+  // Standard amortising-loan payment: P = B*r*(1+r)^n / ((1+r)^n - 1).
+  // r=0 special-cased (the formula divides by zero at r=0) to a straight
+  // balance/n split - a 0% loan just splits the balance evenly.
+  if (!(balance > 0) || !(months > 0) || isNaN(aprPct) || aprPct < 0) return null;
+  const r = aprPct / 100 / 12;
+  if (r === 0) return balance / months;
+  const factor = Math.pow(1 + r, months);
+  return balance * r * factor / (factor - 1);
+}
+
+function interestOnlyFloor(balance, aprPct) {
+  // The minimum monthly payment that stops a balance from growing - just
+  // that month's interest, balance*r. Below this the debt negative-amortises.
+  // This is also the exact threshold the existing "doesn't cover interest"
+  // warning uses, so the two features can't disagree with each other.
+  if (!(balance > 0) || isNaN(aprPct) || aprPct < 0) return null;
+  const r = aprPct / 100 / 12;
+  return balance * r;
+}
+
+function paymentHintText(balance, aprPct, months, indefinite) {
+  // Returns a hint string, or null if there isn't enough valid input yet to
+  // compute one - callers should show nothing (not "£NaN") when this is null.
+  const b   = parseFloat(balance);
+  const apr = parseFloat(aprPct);
+  if (!(b > 0) || isNaN(apr) || apr < 0) return null;
+
+  if (indefinite) {
+    const floor = interestOnlyFloor(b, apr);
+    if (floor === null) return null;
+    return `recommended minimum: ${fmtGBP(floor)}/mo to cover interest - below this the balance grows`;
+  }
+
+  const n = parseInt(months, 10);
+  if (!(n > 0)) return null;
+  const payment = annuityPayment(b, apr, n);
+  if (payment === null) return null;
+  return `recommended: at least ${fmtGBP(payment)}/mo to clear this by the stated term`;
+}
+
 function pearsonCorrelation(x, y) {
   // rho = cov(x, y) / (sd_x * sd_y), using the same (n-1) sample convention
   // as variance() above (the (n-1) divisors cancel in the ratio, but kept

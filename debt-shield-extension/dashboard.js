@@ -326,6 +326,9 @@ function openDebtModal(id) {
     document.getElementById('dm-indefinite').checked = false;
     toggleDebtIndefinite(false);
   }
+  // toggleDebtIndefinite() above already calls updateDebtPaymentHint(), so
+  // the hint reflects whatever values (edit-mode prefill, or the blank
+  // reset) were just set into the fields — no extra call needed here.
   openModal('debt-modal-overlay');
 }
 
@@ -338,6 +341,7 @@ function debtCategoryChanged() {
   if (!document.getElementById('dm-label').value) {
     document.getElementById('dm-label').value = cat !== 'Custom' ? cat : '';
   }
+  updateDebtPaymentHint();
 }
 
 function toggleDebtIndefinite(forceVal) {
@@ -345,6 +349,19 @@ function toggleDebtIndefinite(forceVal) {
   document.getElementById('dm-months').style.display     = checked ? 'none'  : 'block';
   document.getElementById('dm-indef-chip').style.display = checked ? 'block' : 'none';
   if (forceVal !== undefined) document.getElementById('dm-indefinite').checked = forceVal;
+  updateDebtPaymentHint();
+}
+
+function updateDebtPaymentHint() {
+  const hintEl = document.getElementById('dm-payment-hint');
+  if (!hintEl) return;
+  const balance    = document.getElementById('dm-total').value;
+  const apr        = document.getElementById('dm-apr').value;
+  const months     = document.getElementById('dm-months').value;
+  const indefinite = document.getElementById('dm-indefinite').checked;
+  const text = paymentHintText(balance, apr, months, indefinite);
+  if (text) { hintEl.textContent = text; hintEl.style.display = 'block'; }
+  else      { hintEl.textContent = '';   hintEl.style.display = 'none'; }
 }
 
 function saveDebt() {
@@ -361,8 +378,11 @@ function saveDebt() {
   }
 
   // Heads-up, not a hard stop: if the payment doesn't even cover the
-  // interest, the balance grows instead of shrinking at that rate.
-  if (total > 0 && monthly < total * (apr / 100 / 12)) {
+  // interest, the balance grows instead of shrinking at that rate. Uses the
+  // same interestOnlyFloor() as the payment hint above the field, so the
+  // two features can't disagree about where that line is.
+  const floor = interestOnlyFloor(total, apr);
+  if (floor !== null && monthly < floor) {
     alert(`Heads up: this monthly payment doesn't cover the interest at ${apr}% APR, so the balance will grow over time instead of shrinking. You can still save if that's expected.`);
   }
 
@@ -738,7 +758,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('debt-modal-close')?.addEventListener('click', () => closeModal('debt-modal-overlay'));
   document.getElementById('save-debt-btn')   ?.addEventListener('click', saveDebt);
   document.getElementById('dm-category')     ?.addEventListener('change', debtCategoryChanged);
-  document.getElementById('dm-apr')          ?.addEventListener('input',  () => { aprManuallyEdited = true; });
+  document.getElementById('dm-apr')          ?.addEventListener('input',  () => { aprManuallyEdited = true; updateDebtPaymentHint(); });
+  document.getElementById('dm-total')        ?.addEventListener('input',  updateDebtPaymentHint);
+  document.getElementById('dm-months')       ?.addEventListener('input',  updateDebtPaymentHint);
   document.getElementById('dm-indefinite')   ?.addEventListener('change', toggleDebtIndefinite);
 
   // ── Profile ───────────────────────────────────────────────

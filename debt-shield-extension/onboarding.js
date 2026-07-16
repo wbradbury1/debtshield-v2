@@ -39,7 +39,10 @@ function validate(step) {
     if (!csvData) { showError('err-1'); return false; }
   }
   if (step === 2) {
-    if (goals.length === 0) { showError('err-2'); return false; }
+    // Goals are optional — you can't score worse for not having one, since
+    // savings_goals never reaches the simulator (display/tracking only).
+    // Any goal that WAS started still needs to be complete, though — no
+    // half-filled entries silently dropped.
     for (const g of goals) {
       if (!g.name.trim() || g.amount === '' || isNaN(parseFloat(g.amount))) {
         showError('err-2'); return false;
@@ -54,10 +57,13 @@ function validate(step) {
       }
     }
     // Heads-up, not a hard stop: if the payment doesn't even cover the
-    // interest, the balance grows instead of shrinking at that rate.
+    // interest, the balance grows instead of shrinking at that rate. Uses
+    // the same interestOnlyFloor() as the payment hint above, so the two
+    // features can't disagree about where that line is.
     const negAm = debts.find(d => {
       const total = parseFloat(d.total), monthly = parseFloat(d.monthly), apr = parseFloat(d.apr);
-      return total > 0 && monthly < total * (apr / 100 / 12);
+      const floor = interestOnlyFloor(total, apr);
+      return floor !== null && monthly < floor;
     });
     if (negAm) {
       alert(`Heads up: "${negAm.label || negAm.category}"'s monthly payment doesn't cover the interest at ${negAm.apr}% APR, so that balance will grow over time instead of shrinking. You can still continue if that's expected.`);
@@ -193,6 +199,12 @@ function renderDebts() {
   debts.forEach(d => {
     const opts = DEBT_CATEGORIES.map(c => `<option value="${c}" ${d.category===c?'selected':''}>${c}</option>`).join('');
     const div = document.createElement('div'); div.className = 'list-item';
+    // Field order: category/label, then balance+APR, then term, then
+    // monthly payment LAST — the payment guide needs balance/APR/term
+    // entered first to compute anything, and the payment field must stay
+    // an honest blank the user fills in themselves (see paymentHintText —
+    // this is a hint, never a pre-fill, so a declared payment always
+    // reflects what's actually in the user's statement).
     div.innerHTML = `
       <div class="grid-2">
         <div><div class="ifl">Category</div>
@@ -203,12 +215,8 @@ function renderDebts() {
           <input type="text" placeholder="e.g. Honda Civic" value="${esc(d.label)}"/></div>
       </div>
       <div class="grid-2">
-        <div><div class="ifl">Balance Owed ($)</div>
+        <div><div class="ifl">Balance Remaining ($)</div>
           <input type="number" placeholder="10000" value="${d.total}" min="0" step="0.01"/></div>
-        <div><div class="ifl">Monthly Payment ($)</div>
-          <input type="number" placeholder="250" value="${d.monthly}" min="0" step="0.01"/></div>
-      </div>
-      <div class="grid-2" style="margin-bottom:0">
         <div>
           <div class="ifl">APR (%)
             <span class="autofill-badge" id="apr-badge-${d.id}" style="display:${d.aprAutofilled?'inline-block':'none'}">auto-filled</span>
@@ -218,6 +226,8 @@ function renderDebts() {
             ↑ Based on avg ${d.category} rate — override if you know yours
           </div>
         </div>
+      </div>
+      <div class="grid-2" style="margin-bottom:0">
         <div>
           <div class="ifl">Months Remaining</div>
           <div id="months-field-${d.id}" style="display:${d.indefinite?'none':'block'}">
@@ -230,33 +240,45 @@ function renderDebts() {
             <span class="toggle-label">No fixed end date</span>
           </label>
         </div>
+        <div>
+          <div class="ifl">Monthly Payment ($)</div>
+          <input type="number" placeholder="250" value="${d.monthly}" min="0" step="0.01"/>
+          <div class="apr-hint" id="payment-hint-${d.id}"></div>
+        </div>
       </div>
       <div class="item-remove-row"><button class="item-remove">✕ Remove</button></div>`;
 
     // Wire all events via addEventListener (CSP-safe)
-    const [catSelect, labelInput] = div.querySelectorAll('.grid-2:nth-child(1) select, .grid-2:nth-child(1) input');
     const selEl = div.querySelector('select');
-    selEl.addEventListener('change', function() { updateDebt(d.id, 'category', this.value); });
+    selEl.addEventListener('change', function() { updateDebt(d.id, 'category', this.value); updatePaymentHint(d.id); });
 
-    const allInputs = div.querySelectorAll('input[type="text"], input[type="number"]');
-    // label, balance, monthly, apr, months — in DOM order
     div.querySelector('input[type="text"]').addEventListener('input', function() { updateDebt(d.id, 'label', this.value); });
+
+    // DOM order of number inputs is now: balance, APR, months, monthly payment
     const numInputs = div.querySelectorAll('input[type="number"]');
-    numInputs[0].addEventListener('input', function() { updateDebt(d.id, 'total', this.value); });
-    numInputs[1].addEventListener('input', function() { updateDebt(d.id, 'monthly', this.value); });
-    // APR input has an id
+    numInputs[0].addEventListener('input', function() { updateDebt(d.id, 'total', this.value); updatePaymentHint(d.id); });
     const aprInput = div.querySelector('#apr-input-' + d.id);
-    if (aprInput) aprInput.addEventListener('input', function() { overrideApr(d.id, this.value); });
-    // months input is the last number input (index 3)
-    if (numInputs[3]) numInputs[3].addEventListener('input', function() { updateDebt(d.id, 'months', this.value); });
+    if (aprInput) aprInput.addEventListener('input', function() { overrideApr(d.id, this.value); updatePaymentHint(d.id); });
+    if (numInputs[2]) numInputs[2].addEventListener('input', function() { updateDebt(d.id, 'months', this.value); updatePaymentHint(d.id); });
+    numInputs[3].addEventListener('input', function() { updateDebt(d.id, 'monthly', this.value); });
 
     const checkbox = div.querySelector('input[type="checkbox"]');
-    checkbox.addEventListener('change', function() { toggleIndefinite(d.id, this.checked); });
+    checkbox.addEventListener('change', function() { toggleIndefinite(d.id, this.checked); updatePaymentHint(d.id); });
 
     div.querySelector('.item-remove').addEventListener('click', () => removeDebt(d.id));
 
     list.appendChild(div);
+    updatePaymentHint(d.id);
   });
+}
+
+function updatePaymentHint(id) {
+  const d = debts.find(d => d.id === id); if (!d) return;
+  const hintEl = document.getElementById(`payment-hint-${id}`);
+  if (!hintEl) return;
+  const text = paymentHintText(d.total, d.apr, d.months, d.indefinite);
+  if (text) { hintEl.textContent = text; hintEl.classList.add('visible'); }
+  else      { hintEl.textContent = '';   hintEl.classList.remove('visible'); }
 }
 
 /* ─── SUMMARY ─── */
