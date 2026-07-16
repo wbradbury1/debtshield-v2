@@ -9,7 +9,7 @@ const FALLBACK_SCORE = 70;
 ════════════════════════════════════════ */
 let goals   = [];   // [{ id, name, target, priority }] — sorted by priority asc
 let debts   = [];
-let profile = { income: 0, expenses: 0, savings: 0, credit: 0, var_income: null, var_expenses: null, rho_ie: null };
+let profile = { income: 0, expenses: 0, savings: 0, var_income: null, var_expenses: null, rho_ie: null };
 let savingsAllocPct = 50;  // % of monthly surplus going to goals
 
 const DEFAULT_APR = {
@@ -411,25 +411,23 @@ function populateProfileForm() {
   document.getElementById('prof-income').value   = profile.income   || '';
   document.getElementById('prof-expenses').value = profile.expenses || '';
   document.getElementById('prof-savings').value  = profile.savings  || '';
-  document.getElementById('prof-credit').value   = profile.credit   || '';
 }
 
 function saveProfile() {
   const income   = parseFloat(document.getElementById('prof-income').value);
   const expenses = parseFloat(document.getElementById('prof-expenses').value);
   const savings  = parseFloat(document.getElementById('prof-savings').value);
-  const credit   = parseFloat(document.getElementById('prof-credit').value);
 
-  if ([income, expenses, savings, credit].some(isNaN)) {
+  if ([income, expenses, savings].some(isNaN)) {
     alert('Please fill in all profile fields.'); return;
   }
 
   // only drop the CSV-derived volatility (and correlation, same reasoning)
-  // if income or expenses actually changed. savings/credit-only edits
+  // if income or expenses actually changed. a savings-only edit
   // shouldn't invalidate it
   const meansChanged = income !== profile.income || expenses !== profile.expenses;
   profile = {
-    income, expenses, savings, credit,
+    income, expenses, savings,
     var_income:   meansChanged ? null : profile.var_income,
     var_expenses: meansChanged ? null : profile.var_expenses,
     rho_ie:       meansChanged ? null : profile.rho_ie,
@@ -455,7 +453,6 @@ async function syncAndRefresh() {
     var_income:             profile.var_income,
     var_expenses:           profile.var_expenses,
     rho_ie:                 profile.rho_ie,
-    credit_limit:           profile.credit,
     savings_allocation_pct: savingsAllocPct,
     savings_goals: goals.map(g => ({
       name:          g.name,
@@ -663,7 +660,6 @@ async function init() {
         income:       data.average_income    || 0,
         expenses:     data.average_expenses  || 0,
         savings:      data.current_savings   || 0,
-        credit:       data.credit_limit      || 0,
         var_income:   data.var_income  ?? null,
         var_expenses: data.var_expenses ?? null,
         rho_ie:       data.rho_ie ?? null,

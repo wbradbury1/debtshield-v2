@@ -284,7 +284,6 @@ function updatePaymentHint(id) {
 /* ─── SUMMARY ─── */
 function renderSummary() {
   const name      = document.getElementById('name').value.trim();
-  const credit    = document.getElementById('credit').value;
   const surplus   = (csvData?.mu_I || 0) - (csvData?.mu_E || 0);
   const totalDebt = debts.reduce((s,d) => s + (parseFloat(d.total)||0), 0);
   const clr = v => v < 0 ? 'var(--red)' : 'var(--green)';
@@ -297,7 +296,6 @@ function renderSummary() {
     <div class="summary-item"><div class="s-label">Starting Balance</div><div class="s-value" style="color:${clr(b0val)}">${fmtUSD(b0val)}</div></div>
     <div class="summary-item"><div class="s-label">Avg Monthly Income</div><div class="s-value" style="color:${clr(muIval)}">${fmtUSD(muIval)}</div></div>
     <div class="summary-item"><div class="s-label">Avg Monthly Expenses</div><div class="s-value" style="color:${clr(muEval)}">${fmtUSD(muEval)}</div></div>
-    <div class="summary-item"><div class="s-label">Credit Limit</div><div class="s-value" style="color:${clr(parseFloat(credit)||0)}">${fmtUSD(credit||0)}</div></div>
     <div class="summary-item"><div class="s-label">Monthly Surplus</div>
       <div class="s-value" style="color:${clr(surplus)}">${fmtUSD(surplus)}</div></div>
     <div class="summary-item"><div class="s-label">Savings Allocation</div>
@@ -332,7 +330,6 @@ async function submitData() {
     var_income:             csvData.var_I,
     var_expenses:           csvData.var_E,
     rho_ie:                 csvData.rho_ie,
-    credit_limit:           parseFloat(document.getElementById('credit').value) || 0,
     savings_allocation_pct: savingsAllocPct,
     savings_goals: goals.map((g, i) => ({
       name:          g.name,

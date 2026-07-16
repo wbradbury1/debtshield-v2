@@ -4,7 +4,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from models import UserOnboarding
 from data_store import save_user, get_user
-from simulation import simulate_purchase
 from scoring import shield_score
 
 logger = logging.getLogger(__name__)
@@ -31,15 +30,6 @@ def get_user_data(name: str):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
-
-
-@app.post("/simulate/{name}")
-def simulate(name: str, purchase_amount: float):
-    user = get_user(name)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    result = simulate_purchase(user, purchase_amount)
-    return result
 
 
 @app.get("/score/{name}")

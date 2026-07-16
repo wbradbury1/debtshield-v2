@@ -5,7 +5,6 @@ class SavingsGoal(BaseModel):
     name: str
     target_amount: float = Field(ge=0)
     priority: int = 1           # 1 = highest priority; lower number = more weight
-    timeframe_months: Optional[int] = None  # deprecated, kept for backward compat
 
 class Debt(BaseModel):
     category: str
@@ -23,7 +22,6 @@ class UserOnboarding(BaseModel):
     var_income: Optional[float] = None
     var_expenses: Optional[float] = None
     rho_ie: Optional[float] = None   # Pearson correlation between monthly income/expense shocks, estimated from CSV
-    credit_limit: float = Field(ge=0)
     savings_allocation_pct: float = Field(default=50.0, ge=0, le=100)   # % of monthly surplus allocated to savings goals
     savings_goals: List[SavingsGoal]
     debts: List[Debt] = []
