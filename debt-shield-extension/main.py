@@ -1,3 +1,4 @@
+import logging
 import math
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -5,6 +6,8 @@ from models import UserOnboarding
 from data_store import save_user, get_user
 from simulation import simulate_purchase
 from scoring import shield_score
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -87,10 +90,29 @@ def get_score(name: str):
     # -> CV <= 0.78. old value was a flat 1.0 guess (~16% chance). change
     # p and look up Phi^-1(1-p) to retune, don't just pick a new CV
     MAX_CV = 0.78
+    variance_clamped = False
+
     if user.average_income > 0:
-        var_I = min(var_I, (user.average_income * MAX_CV) ** 2)
+        cap_I = (user.average_income * MAX_CV) ** 2
+        if var_I > cap_I:
+            implied_cv = math.sqrt(var_I) / user.average_income
+            logger.warning(
+                "clamp fired for %s: income CV was %.0f%%, capped at %.0f%%",
+                user.name, implied_cv * 100, MAX_CV * 100,
+            )
+            variance_clamped = True
+        var_I = min(var_I, cap_I)
+
     if user.average_expenses > 0:
-        var_E = min(var_E, (user.average_expenses * MAX_CV) ** 2)
+        cap_E = (user.average_expenses * MAX_CV) ** 2
+        if var_E > cap_E:
+            implied_cv = math.sqrt(var_E) / user.average_expenses
+            logger.warning(
+                "clamp fired for %s: expense CV was %.0f%%, capped at %.0f%%",
+                user.name, implied_cv * 100, MAX_CV * 100,
+            )
+            variance_clamped = True
+        var_E = min(var_E, cap_E)
 
     score = shield_score(
         mu_I  = user.average_income,
@@ -105,4 +127,4 @@ def get_score(name: str):
         N     = 200_000,
     )
 
-    return {"name": user.name, "shield_score": score}
+    return {"name": user.name, "shield_score": score, "variance_clamped": variance_clamped}

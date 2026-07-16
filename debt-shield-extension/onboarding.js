@@ -547,18 +547,28 @@ function parseCSV(text, filename) {
 }
 
 function parseDate(str) {
-  // Try ISO format: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS
-  let d = new Date(str);
-  if (!isNaN(d.getTime())) return d;
+  // ISO: YYYY-MM-DD (optionally with a time suffix) - unambiguous, matched
+  // explicitly so it never falls through to the generic parse below.
+  const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    const d = new Date(`${iso[1]}-${iso[2]}-${iso[3]}`);
+    if (!isNaN(d.getTime())) return d;
+  }
 
-  // Try DD/MM/YYYY or DD-MM-YYYY
+  // DD/MM/YYYY or DD-MM-YYYY - our CSV data's actual format. Matched
+  // explicitly and rebuilt as an unambiguous YYYY-MM-DD string before ever
+  // touching Date(). Previously this function tried `new Date(str)` first,
+  // which silently reads "02/01/2025" as US MM/DD (Feb 1st) - so every day
+  // <=12 got its day/month swapped. See debtshield-v2_variance-inflation-issue.md.
   const dmy = str.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
-  if (dmy) return new Date(`${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`);
+  if (dmy) {
+    const d = new Date(`${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`);
+    if (!isNaN(d.getTime())) return d;
+  }
 
-  // Try MM/DD/YYYY
-  const mdy = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (mdy) return new Date(`${mdy[3]}-${mdy[1].padStart(2,'0')}-${mdy[2].padStart(2,'0')}`);
-
+  // No MM/DD fallback: our data is DD/MM only. A generic Date(str) call here
+  // would reintroduce the exact ambiguity this rewrite removes, for anything
+  // that isn't already covered above.
   return null;
 }
 
