@@ -17,8 +17,15 @@ def prob_default_12m(
     seed: int = 42,
 ) -> float:
     """
-    Estimate the probability of defaulting at least once in the next 12 months
-    via Monte Carlo simulation.
+    Estimate the probability of defaulting within the next 12 months via
+    Monte Carlo simulation.
+
+    Default = 3 consecutive negative-cash-balance months, not just one bad
+    month (matches the README - used to be single-breach, fixed while
+    rewriting this function anyway).
+
+    No Python loop over the 200k paths or over debts - only real loop here
+    is the 12-month one, everything else is numpy doing all paths at once.
 
     Parameters
     ----------
@@ -61,9 +68,19 @@ def prob_default_12m(
 
     rng = np.random.default_rng(seed)
 
+    # shape (N, 12, 2): a pair of standard normals per path per month. need
+    # 2 numbers per month because income/expenses have to come out
+    # correlated, not independent - see below.
     Z = rng.standard_normal((N, 12, 2))
 
-    income   = mu_I + sigma_I * Z[..., 0]
+    income   = mu_I + sigma_I * Z[..., 0]   # X = mu + sigma*Z
+
+    # income and expenses shouldn't be independent - a bad income month
+    # (lost hours, job loss) usually drags expenses into a bad month too
+    # (or vice versa). so expenses' random part = rho_IE * income's shock +
+    # its own independent noise, weighted so the result is still a proper
+    # standard normal. rho_IE=1 -> expenses tracks income's shock exactly,
+    # rho_IE=0 -> fully independent, same as the old behaviour.
     expenses = mu_E + sigma_E * (rho_IE * Z[..., 0]
                                  + math.sqrt(max(0.0, 1.0 - rho_IE**2)) * Z[..., 1])
 
@@ -73,6 +90,10 @@ def prob_default_12m(
     bal = np.tile(d, (N, 1))
 
     defaulted = np.zeros(N, dtype=bool)
+
+    # streak of consecutive bad months per path - resets to 0 the second a
+    # path goes solvent again, default fires once it hits 3
+    consecutive_shortfall_months = np.zeros(N, dtype=int)
 
     for m in range(1, 13):
         active = ~defaulted
@@ -94,7 +115,14 @@ def prob_default_12m(
         B[active] += net_cash_flow[active, m - 1]
         B[active] -= total_required[active]
 
-        defaulted |= (B < 0)
+        # used to be `defaulted |= (B < 0)` - single bad month = default,
+        # didn't match README's 3-consecutive-months rule. bump the streak
+        # on a short month, reset on a solvent one, default at 3 in a row
+        short_this_month = active & (B < 0)
+        consecutive_shortfall_months[short_this_month] += 1
+        consecutive_shortfall_months[active & ~short_this_month] = 0
+
+        defaulted |= (consecutive_shortfall_months >= 3)
 
         payments_made = scheduled + residual
         bal -= payments_made
