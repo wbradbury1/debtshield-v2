@@ -36,7 +36,23 @@ This shape (biggest move in the middle account, near-zero move at both
 extremes) is itself evidence the fix is doing the right thing, not just "a
 different number."
 
+## Final rerun (items 3-10: MC rewrite, confidence interval, antithetic sampling, convergence study)
+
+| Account | Shield Score | 95% CI | `variance_clamped` |
+|---|---|---|---|
+| 1 (distressed) | 2 | [1.9, 2.1] | false |
+| 2 (healthy) | 100 | [100, 100] | false |
+| 3 (in-between) | 82 | [81.9, 82.2] | false |
+
+Against the post-item-4 scores above: Account 1 unchanged (2 → 2), Account 2 unchanged (100 → 100), Account 3 moved by 0.1 (82.1 → 82). That's well inside the CI widths themselves - antithetic sampling changes which random paths actually get simulated for a given seed (it's a different sampling scheme, not just a rerun), so a small shift at a fixed seed is expected, not a regression.
+
+Account 2's interval collapses to a single point rather than just clamping to the ceiling - across all 200,000 paths, zero defaulted, so the sample variance behind the CI is exactly zero, not merely small. `variance_clamped` stays false on all three, as expected: these CVs come from the raw CSV data, untouched by any of the MC engine changes.
+
+CI widths line up with the convergence study: at N=200,000 the study's `analytic_pair_se` for a mid-range probability worked out to roughly 0.15 score points at 95%, consistent with the ~0.1-0.3 point widths seen here.
+
 ## How to use this
+
+The "Final rerun" table above is the current baseline - compare future changes against that, not the older pre/post-item-4 columns, which are kept only as history for why the default rule changed.
 
 Re-onboard all three accounts and rerun `GET /score/{name}` in `http://localhost:8000/docs` for each. Compare
 against the scores above:
