@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 
 
-def prob_default_12m(
+def _simulate_defaults(
     mu_I: float,
     mu_E: float,
     var_I: float,
@@ -16,10 +16,13 @@ def prob_default_12m(
     N: int = 200_000,
     rho_IE: float = 0.0,
     seed: int = 42,
-) -> float:
+) -> np.ndarray:
     """
-    Estimate the probability of defaulting within the next 12 months via
-    Monte Carlo simulation.
+    Runs the Monte Carlo simulation and returns the raw per-path default
+    indicator, shape (N,), dtype bool. Split out from prob_default_12m so
+    the confidence interval can use the correct antithetic-pair variance
+    (see _score_margin_antithetic) instead of wrongly treating all N paths
+    as independent trials.
 
     Default = 3 consecutive negative-cash-balance months, not just one bad
     month (matches the README - used to be single-breach, fixed while
@@ -46,7 +49,7 @@ def prob_default_12m(
 
     Returns
     -------
-    float : Estimated probability of default within 12 months.
+    np.ndarray : Boolean array, shape (N,), True where that path defaulted.
     """
 
     k = len(d)
@@ -69,10 +72,24 @@ def prob_default_12m(
 
     rng = np.random.default_rng(seed)
 
-    # shape (N, 12, 2): a pair of standard normals per path per month. need
-    # 2 numbers per month because income/expenses have to come out
-    # correlated, not independent - see below.
-    Z = rng.standard_normal((N, 12, 2))
+    # Antithetic sampling: draw N//2 shocks, mirror each one (negate it) for
+    # the other N//2. A path and its mirror move opposite ways, so averaging
+    # them cancels out some of each one's noise - default only ever gets
+    # worse with a bad shock, never better, which is what makes this work.
+    #
+    # Paths [0, half) are the draws, [half, 2*half) are their mirrors in
+    # the same order (path i <-> path half+i). _score_margin_antithetic
+    # needs that exact layout to pair them back up. Odd N just tacks on
+    # one extra unmirrored path at the end.
+    #
+    # shape (*, 12, 2): a pair of normals per path per month - need 2
+    # because income/expenses come out correlated, not independent (below).
+    half = N // 2
+    Z_half = rng.standard_normal((half, 12, 2))
+    Z = np.concatenate([Z_half, -Z_half], axis=0)
+    if N % 2 == 1:
+        Z_extra = rng.standard_normal((1, 12, 2))
+        Z = np.concatenate([Z, Z_extra], axis=0)
 
     income   = mu_I + sigma_I * Z[..., 0]   # X = mu + sigma*Z
 
@@ -129,7 +146,34 @@ def prob_default_12m(
         bal -= payments_made
         bal = np.maximum(bal, 0.0)
 
-    return float(defaulted.sum()) / N
+    return defaulted
+
+
+def prob_default_12m(
+    mu_I: float,
+    mu_E: float,
+    var_I: float,
+    var_E: float,
+    d: list[float],
+    p: list[float],
+    t: list[float],
+    r: list[float],
+    B0: float = 0.0,
+    N: int = 200_000,
+    rho_IE: float = 0.0,
+    seed: int = 42,
+) -> float:
+    """
+    Estimate the probability of defaulting within the next 12 months via
+    Monte Carlo simulation. Thin wrapper around _simulate_defaults for
+    callers that just want the point estimate - see that function for the
+    actual simulation and parameter docs.
+    """
+    defaulted = _simulate_defaults(
+        mu_I=mu_I, mu_E=mu_E, var_I=var_I, var_E=var_E,
+        d=d, p=p, t=t, r=r, B0=B0, N=N, rho_IE=rho_IE, seed=seed,
+    )
+    return float(defaulted.mean())
 
 
 @dataclass
@@ -139,15 +183,23 @@ class ScoreResult:
     ci_high: float
 
 
-def _score_margin(prob: float, N: int, z: float = 1.96) -> float:
-    # prob is a sample proportion from N Bernoulli trials (each path either
-    # defaulted or didn't) - standard error is sqrt(p(1-p)/N), z=1.96 for
-    # 95%. Same approximate CI as ST232/ST233 Sec 7.4 Example 7.10 - CLT
-    # pivot with p_hat plugged into the variance term. Score is
-    # (1-prob)*100 so the margin just rescales by 100 too - except near
-    # 0/100 where the clamp makes the shown interval narrower than the real one.
-    se_prob = math.sqrt(prob * (1.0 - prob) / N)
-    return z * se_prob * 100.0
+def _score_margin_antithetic(defaulted: np.ndarray, N: int, z: float = 1.96) -> float:
+    """
+    95% margin on the score - correct for antithetic pairing.
+
+    Path i and half+i are mirrors, so they're correlated, not independent
+    trials - can't just plug all N into sqrt(p(1-p)/N). Pairs ARE
+    independent of each other though, so average each pair's outcome
+    (0, 0.5, or 1), treat those `half` pair-averages as the iid sample,
+    and take the usual standard error on that.
+
+    Odd N's leftover unpaired path gets dropped here (still counted in the
+    point estimate, just has no partner) - negligible either way.
+    """
+    half = N // 2
+    pair_avg = (defaulted[:half].astype(float) + defaulted[half:2 * half].astype(float)) / 2.0
+    se = pair_avg.std(ddof=1) / math.sqrt(half)
+    return z * se * 100.0
 
 
 def shield_score(
@@ -171,12 +223,13 @@ def shield_score(
     much could the score plausibly move" - not real-world uncertainty
     about the household itself.
     """
-    prob = prob_default_12m(
+    defaulted = _simulate_defaults(
         mu_I=mu_I, mu_E=mu_E, var_I=var_I, var_E=var_E,
         d=d, p=p, t=t, r=r, B0=B0, N=N, rho_IE=rho_IE, seed=seed,
     )
+    prob      = float(defaulted.mean())
     raw_score = (1.0 - prob) * 100
-    margin    = _score_margin(prob, N)
+    margin    = _score_margin_antithetic(defaulted, N)
 
     return ScoreResult(
         score   = round(max(0.0, min(100.0, raw_score)), 1),

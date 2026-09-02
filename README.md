@@ -28,9 +28,21 @@ Monte Carlo simulation estimates probability of default, run over 200,000 indepe
 
 
 
+## Variance reduction
+
+More paths shrink sampling noise but cost more compute, so the engine also uses antithetic sampling: instead of drawing 200,000 fully independent sets of shocks, it draws 100,000 and mirrors each one (negates it) to get the other half. A shock and its mirror are perfectly negatively correlated, so when a bad income month pushes one path toward default, its mirror gets a correspondingly good income month pushing it away from default. Averaging a path with its mirror cancels out some of each one's own noise, and because default risk moves monotonically with the shocks here (worse income/expenses only ever pushes toward default, never away), that lowers the estimator's variance below what 200,000 truly independent paths would give.
+
 ## Shield Score
 
-Shield Score is a linear transform of that probability: score = (1 - P(default)) * 100. The transform holds up across the range this model produces. It only loses resolution well beyond what 200,000 paths can reliably estimate in the first place. Sampling error is the real limit on precision here. A confidence interval on the estimate is a planned addition.
+Shield Score is a linear transform of that probability: score = (1 - P(default)) * 100. The transform holds up across the range this model produces. It only loses resolution well beyond what 200,000 paths can reliably estimate in the first place. Sampling error is the real limit on precision here, which is what the confidence interval below is for.
+
+## Confidence interval
+
+Score comes from 200,000 simulated paths, so it's a sample proportion, not the true probability of default - rerun with a different seed and it moves a little. `/score/` reports a 95% confidence interval (`shield_score_ci_low`/`shield_score_ci_high`) alongside the score: the standard approximate CI for a Monte Carlo probability estimate, exact only as N grows large, which 200,000 comfortably satisfies. Bounds clamp to [0, 100] like the score itself, so a score sitting right at 0 or 100 shows a narrower interval than the true one.
+
+Because of the antithetic pairing above, a path and its mirror aren't independent, so the interval isn't built by treating all 200,000 as independent trials. It's built from the 100,000 pair-averages instead, since those pairs genuinely are independent of each other - same standard-error-of-a-mean logic, just applied to the unit that's actually independent.
+
+The engine runs on a fixed seed by default, so identical inputs always reproduce the identical score - the CI describes how much the score would move across different seeds, not run-to-run wobble on an unchanged seed. `/score/` accepts an optional `seed` parameter for inspecting that directly.
 
 
 
@@ -54,7 +66,3 @@ uvicorn main:app --reload
 Backend runs at `http://127.0.0.1:8000`. Then load `debt-shield-extension/` as an unpacked extension in Chrome (`chrome://extensions` → Developer mode → Load unpacked).
 
 **Note:** regenerating `requirements.txt` from PowerShell with `>` writes UTF-16 and breaks pip. Use `pip freeze | Out-File -Encoding utf8 requirements.txt`, or run it from cmd.
-
-## Extension 1 (planned): confidence interval
-
-The score is a Monte Carlo estimate, so it carries sampling error; a 95% CI from the binomial standard error is the first planned extension. The engine runs on a fixed seed by default: identical inputs always reproduce the identical score, so the CI will describe error across seeds rather than run-to-run wobble. `/score/` accepts an optional seed parameter for inspecting that wobble directly.
