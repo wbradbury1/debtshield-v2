@@ -122,7 +122,7 @@ def get_score(name: str, seed: int = 42):
     if user.rho_ie is not None:
         rho_IE = max(-0.99, min(0.99, user.rho_ie))
 
-    score = shield_score(
+    result = shield_score(
         mu_I   = user.average_income,
         mu_E   = adjusted_expenses,
         var_I  = var_I,
@@ -137,4 +137,13 @@ def get_score(name: str, seed: int = 42):
         seed   = seed,
     )
 
-    return {"name": user.name, "shield_score": score, "variance_clamped": variance_clamped}
+    # ci_low/ci_high = 95% confidence interval on the score, from Monte
+    # Carlo sampling noise (see _score_margin in scoring.py). Frontend
+    # doesn't read these yet - just exposing them on the API for now.
+    return {
+        "name": user.name,
+        "shield_score": result.score,
+        "shield_score_ci_low": result.ci_low,
+        "shield_score_ci_high": result.ci_high,
+        "variance_clamped": variance_clamped,
+    }

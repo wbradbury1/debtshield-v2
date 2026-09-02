@@ -1,4 +1,5 @@
 import math
+from dataclasses import dataclass
 import numpy as np
 
 
@@ -131,6 +132,24 @@ def prob_default_12m(
     return float(defaulted.sum()) / N
 
 
+@dataclass
+class ScoreResult:
+    score: float
+    ci_low: float
+    ci_high: float
+
+
+def _score_margin(prob: float, N: int, z: float = 1.96) -> float:
+    # prob is a sample proportion from N Bernoulli trials (each path either
+    # defaulted or didn't) - standard error is sqrt(p(1-p)/N), z=1.96 for
+    # 95%. Same approximate CI as ST232/ST233 Sec 7.4 Example 7.10 - CLT
+    # pivot with p_hat plugged into the variance term. Score is
+    # (1-prob)*100 so the margin just rescales by 100 too - except near
+    # 0/100 where the clamp makes the shown interval narrower than the real one.
+    se_prob = math.sqrt(prob * (1.0 - prob) / N)
+    return z * se_prob * 100.0
+
+
 def shield_score(
     mu_I: float,
     mu_E: float,
@@ -144,13 +163,23 @@ def shield_score(
     N: int = 200_000,
     rho_IE: float = 0.0,
     seed: int = 42,
-) -> float:
+) -> ScoreResult:
     """
-    Returns the Shield Score: (1 - prob_default_12m) * 100.
-    Rounded to one decimal place, clamped to [0, 100].
+    Returns the Shield Score: (1 - prob_default_12m) * 100, plus a 95%
+    confidence interval around it. The interval reflects Monte Carlo
+    sampling noise only - "if we reran this with a different seed, how
+    much could the score plausibly move" - not real-world uncertainty
+    about the household itself.
     """
     prob = prob_default_12m(
         mu_I=mu_I, mu_E=mu_E, var_I=var_I, var_E=var_E,
         d=d, p=p, t=t, r=r, B0=B0, N=N, rho_IE=rho_IE, seed=seed,
     )
-    return round(max(0.0, min(100.0, (1.0 - prob) * 100)), 1)
+    raw_score = (1.0 - prob) * 100
+    margin    = _score_margin(prob, N)
+
+    return ScoreResult(
+        score   = round(max(0.0, min(100.0, raw_score)), 1),
+        ci_low  = round(max(0.0, min(100.0, raw_score - margin)), 1),
+        ci_high = round(max(0.0, min(100.0, raw_score + margin)), 1),
+    )
