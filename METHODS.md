@@ -20,6 +20,19 @@ where `Z0` is income's own shock and `Z1` is an independent second draw. This is
 
 Rationale for the 3-consecutive-month rule (Black-Cox vs Parisian, the Basel II citation) is in README's **Default definiton** section - not repeating it here. One implementation detail worth being explicit about, since it's easy to get subtly wrong: the streak counter (`consecutive_shortfall_months`) *resets to 0* on any solvent month, it doesn't decrement. That's "3 in a row," not "3 bad months somewhere in the last N." A path with months `[-50, +10, -50, -50, -50]` defaults (three genuine in-a-row at the end); one with `[-50, -50, +10, -50, -50]` does not, despite having the same total count of bad months. That distinction - sustained distress versus a rough patch with the same bad-month count - is the entire point of moving off the single-breach rule, so it has to be reset-to-zero, not a decrementing counter.
 
+## Negative balance interest
+
+A negative cash balance isn't left as a free, untouched number - it compounds monthly, the same mechanic as declared-debt interest (`bal[active] += (bal*r)[active]`), applied to the implicit "debt" of being cash-negative:
+
+```
+NEGATIVE_BALANCE_RATE = (1 + 0.40) ** (1/12) - 1   # ≈ 0.02844 (2.844%/month)
+B[in_shortfall] *= (1 + NEGATIVE_BALANCE_RATE)
+```
+
+**Where 40% comes from.** Deliberately harsh, not fitted: 40% EAR is what most major UK banks charge on arranged overdrafts as of 2026 - Lloyds, Halifax, HSBC, Nationwide, Santander and First Direct all sit at 39.9% EAR, rounded up; Barclays is lower at 35%. It's the top of *ordinary* (non-payday) borrowing cost, chosen to err harsh rather than underestimate what an uncovered shortfall actually costs a household.
+
+**Why the conversion isn't simple division.** "EAR" specifically means the stated 40% is already the effective *annual* figure - compounding monthly at `0.40/12` and letting that run for 12 months would actually land at `(1 + 0.40/12)**12 - 1 ≈ 48.2%` effective annual, a different, uncited number. The correct inverse is `(1 + EAR)^(1/12) - 1`: compounding this monthly rate for 12 months reproduces exactly 40% annual, by construction. This is deliberately not the same convention as declared-debt APRs elsewhere (`main.py`, `apr/100/12`) - those are user-supplied headline APR figures with no claim to be an *effective* rate, so simple division is a reasonable simplification there. Here, "EAR" is doing real work in the citation (it's what the sourced bank data actually reports), so the conversion has to actually preserve it rather than quietly turning a precise 40% into an unlabelled ~48%.
+
 ## Antithetic sampling
 
 **The mechanism.** Rather than drawing N fully independent shocks, the engine draws N/2 and mirrors each one (negates it) to get the other N/2. Path `i` (for `i` in `[0, half)`) pairs with path `half + i`, using `Z` and `-Z` respectively.
@@ -86,4 +99,4 @@ Fitted slope of `log(empirical SE)` against `log(N)`: **-0.500**, matching the O
 
 ## Scoped out
 
-See README's "Potential Extensions" section for what was deliberately left out (AR(1)/fat-tailed shocks, importance sampling) and why.
+See README's "Potential extensions" section for what was deliberately left out (AR(1)/fat-tailed shocks, importance sampling) and why. Auto-originated debt on negative balance, previously listed here too, is now built - see "Negative balance interest" above, not scoped out anymore.

@@ -22,6 +22,8 @@ v1 models default as a first-passage barrier crossing. A household's monthly cas
 
 v2 replaces the single-month trigger with a continuous Parisian barrier condition. Default now requires the balance to stay negative for three consecutive months, and the count resets to zero the moment the balance recovers. This fixes a real issue in v1: a single noisy month could flag default even when a household's average cash flow stayed positive. Three months matches the 90-days-past-due default standard set by Basel II.
 
+A negative balance also isn't free: it compounds monthly at a flat rate (40% EAR, matching what most major UK banks charge on arranged overdrafts) rather than sitting as an untouched number a household could recover from at no cost. This is a deliberately harsh stand-in for the reality that an uncovered shortfall usually gets funded somehow - overdraft, credit card, payday loan - not a fitted estimate of any specific household's actual borrowing cost.
+
 ## Monte Carlo
 
 Monte Carlo simulation estimates probability of default, run over 200,000 independent paths. Each path simulates 12 months of income and expenses as random shocks, correlated using a Pearson correlation estimated directly from the user's own monthly CSV data. Accounts with fewer than 3 months of data, or a flat (zero-variance) income or expense series, default to independent shocks instead — there isn't enough signal to estimate a correlation from. Each month the balance moves by income minus living expenses minus scheduled debt payments, and any remaining debt balance accrues interest at its own rate, until the barrier condition triggers or the year ends. Expenses as entered include debt payments. The backend strips these out before simulating: the simulator charges each debt on its own schedule, and leaving them in would count the same payment twice. Probability of default is the fraction of paths that trigger it. Exact correlation construction is in `METHODS.md`.
@@ -43,6 +45,12 @@ Shield Score is a linear transform of that probability: score = (1 - P(default))
 ## Convergence study
 
 `debt-shield-extension/convergence_study.py` checks the CI and variance-reduction claims above against actual repeated runs rather than just the maths behind them - rerunning the sim at increasing path counts and confirming the score's precision improves at the rate Monte Carlo theory predicts. Full methodology, the fitted result, and the results table are in `METHODS.md`; raw numbers in `docs/convergence_study.md` / `docs/convergence_study.csv`.
+
+## Potential extensions
+
+**AR(1)/fat-tailed shocks.** Income and expense shocks are iid normal draws month to month. An AR(1) structure would capture that bad months tend to cluster (a job loss doesn't un-happen after one month), and fatter tails would capture extreme events better than a normal distribution does. Not implemented - reworking antithetic pairing for autocorrelated paths is real effort for a refinement, not a correctness fix. The reasoning above is most of the actual value either way: recognizing that iid-Normal understates clustering and tail risk carries most of the signal that building it would.
+
+**Importance sampling.** Considered for rare-event estimation - useful when the event you're trying to measure almost never happens in a plain simulation, so you bias the sampling toward it and correct for the bias afterward. Not pursued here, since default isn't consistently rare across the current test population (Account 1 defaults on the large majority of paths) - the technique's use case doesn't clearly apply, and recognizing that is closer to the point than implementing a variance-reduction method without first checking it fits the problem.
 
 
 

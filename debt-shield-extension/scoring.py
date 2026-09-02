@@ -2,6 +2,27 @@ import math
 from dataclasses import dataclass
 import numpy as np
 
+# A cash shortfall that isn't a formally declared debt still has to get
+# funded somehow - overdraft, credit card, payday loan - so it shouldn't
+# sit "free" in the sim. Deliberately harsh, not fitted: 40% EAR is what
+# most major UK banks charge on arranged overdrafts as of 2026 (Lloyds,
+# Halifax, HSBC, Nationwide, Santander, First Direct all at 39.9% EAR,
+# rounded up) - the top of ordinary (non-payday) borrowing cost, chosen to
+# err harsh rather than underestimate.
+#
+# EAR means the stated 40% is already the *effective annual* figure, so it
+# has to be un-compounded down to a monthly rate, not divided by 12. Simple
+# division (0.40/12, then compounded monthly) would actually overshoot to
+# ~48% effective annual - a different, unlabelled number, not what was
+# cited. (1+EAR)^(1/12) - 1 is the correct inverse: compounding this
+# monthly rate for 12 months reproduces exactly 40% annual, by
+# construction. This is NOT the same convention as declared-debt APRs in
+# main.py (apr/100/12) - those are user-supplied headline APR figures with
+# no claim to be an effective rate, so simple division is a reasonable
+# simplification there. Here, "EAR" is doing real work in the citation, so
+# the conversion has to actually preserve it.
+NEGATIVE_BALANCE_RATE = 1.40 ** (1 / 12) - 1
+
 
 def _simulate_defaults(
     mu_I: float,
@@ -139,6 +160,12 @@ def _simulate_defaults(
         consecutive_shortfall_months[active & ~short_this_month] = 0
 
         defaulted |= (consecutive_shortfall_months >= 3)
+
+        # Shortfall compounds into next month at NEGATIVE_BALANCE_RATE -
+        # same mechanic as the declared-debt interest above, applied to the
+        # implicit "debt" of being cash-negative.
+        in_shortfall = active & (B < 0)
+        B[in_shortfall] *= (1.0 + NEGATIVE_BALANCE_RATE)
 
         payments_made = scheduled + residual
         bal -= payments_made
