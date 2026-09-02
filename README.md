@@ -44,6 +44,10 @@ Because of the antithetic pairing above, a path and its mirror aren't independen
 
 The engine runs on a fixed seed by default, so identical inputs always reproduce the identical score - the CI describes how much the score would move across different seeds, not run-to-run wobble on an unchanged seed. `/score/` accepts an optional `seed` parameter for inspecting that directly.
 
+## Convergence study
+
+`debt-shield-extension/convergence_study.py` checks the two claims above against actual repeated runs rather than just the maths. For one account, it reruns the sim at N from 1,000 up to 400,000 with 30 seeds each, and compares the estimate's real spread across those seeds against what the confidence interval's formula predicts. Fitted slope of log(spread) against log(N) came out at -0.500, matching the O(1/√N) rate Monte Carlo theory predicts. The pair-based formula also came out consistently lower than the naive independent-trials formula at every N, which is the antithetic sampling's variance reduction showing up empirically, not just claimed. Full numbers in `docs/convergence_study.md` / `docs/convergence_study.csv`; rerun with `python convergence_study.py`.
+
 
 
 

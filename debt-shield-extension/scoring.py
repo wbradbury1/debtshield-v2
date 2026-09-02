@@ -133,9 +133,7 @@ def _simulate_defaults(
         B[active] += net_cash_flow[active, m - 1]
         B[active] -= total_required[active]
 
-        # used to be `defaulted |= (B < 0)` - single bad month = default,
-        # didn't match README's 3-consecutive-months rule. bump the streak
-        # on a short month, reset on a solvent one, default at 3 in a row
+        # used to be `defaulted |= (B < 0)` - single bad month = default
         short_this_month = active & (B < 0)
         consecutive_shortfall_months[short_this_month] += 1
         consecutive_shortfall_months[active & ~short_this_month] = 0
