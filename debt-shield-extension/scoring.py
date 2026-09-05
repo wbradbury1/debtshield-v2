@@ -2,19 +2,16 @@ import math
 from dataclasses import dataclass
 import numpy as np
 
-# Cash shortfalls aren't formally declared debt, but they still get funded
-# somehow (overdraft, credit card, payday loan), so they shouldn't sit
-# "free" in the sim. 40% EAR: the rate most major UK banks (Lloyds,
-# Halifax, HSBC, Nationwide, Santander; First Direct's 39.9% rounds up)
-# charge on arranged overdrafts as of 2026, the top of ordinary non-payday
-# borrowing. Deliberately harsh, not fitted.
+# Cash shortfalls aren't declared debt but still get funded somehow
+# (overdraft, credit card, payday loan) - shouldn't be free in the sim.
+# 40% EAR, the top end of UK arranged-overdraft rates in 2026 (Lloyds,
+# Halifax, HSBC, Nationwide, Santander, First Direct at 39.9%). Harsh on
+# purpose.
 #
-# EAR is already annual, so it's un-compounded to a monthly rate rather
-# than divided by 12: 0.40/12 compounded monthly overshoots to ~48%
-# effective annual, a different number. (1+EAR)^(1/12)-1 is the correct
-# inverse and reproduces exactly 40% when compounded for 12 months. Not
-# the same convention as main.py's declared-debt APRs (apr/100/12), which
-# are headline figures with no claim to being effective.
+# EAR is annual, so convert to monthly with (1+EAR)^(1/12)-1, not
+# 0.40/12 (that overshoots to ~48% effective annual). Different
+# convention to main.py's APRs (apr/100/12) - those are headline
+# figures, not effective ones.
 NEGATIVE_BALANCE_RATE = 1.40 ** (1 / 12) - 1
 
 # 200,000 paths - convergence_study.md suggests past this point, added
@@ -37,26 +34,16 @@ def _simulate_defaults(
     seed: int = 42,
 ) -> np.ndarray:
     """
-    Runs the Monte Carlo simulation and returns the raw per-path default
-    flag, shape (N,), dtype bool. Split out from prob_default_12m so the
-    confidence interval can use the correct antithetic-pair variance (see
-    _prob_margin_antithetic) instead of wrongly treating all N paths as
-    independent trials.
+    Runs the sim, returns the per-path default flag (shape (N,), bool).
+    Split from prob_default_12m so the CI can use antithetic-pair variance
+    (_prob_margin_antithetic) instead of treating all N paths as
+    independent.
 
-    Default = 3 consecutive negative-cash-balance months, not just one bad
-    month (matches the README - used to be single-breach, fixed while
-    rewriting this function anyway).
+    Default = 3 consecutive negative-balance months, not one bad month
+    (matches the README).
 
-    No Python loop over the 200k paths or over debts - the only real loop
-    here is the 12-month one, everything else is numpy doing all paths at
-    once.
-
-    mu_I/mu_E are mean monthly income/expenses (expenses excluding debt
-    payments), var_I/var_E their variances. d/p/t/r are per-debt lists:
-    current balance, fixed monthly payment, term in months (math.inf for
-    interest-only/indefinite loans), and monthly interest rate. B0 is the
-    starting cash balance, N the number of Monte Carlo paths, rho_IE the
-    correlation between income and expense shocks, seed the RNG seed.
+    Everything's vectorised except the 12-month loop - no Python loop over
+    paths or debts.
     """
 
     k = len(d)
@@ -79,18 +66,17 @@ def _simulate_defaults(
 
     rng = np.random.default_rng(seed)
 
-    # Antithetic sampling: draw N//2 shocks, mirror each one (negate it) for
-    # the other N//2. A path and its mirror move opposite ways, so averaging
-    # them cancels out some of each one's noise - default only ever gets
-    # worse with a bad shock, never better, which is what makes this work.
+    # Antithetic sampling: draw N//2 shocks, mirror (negate) each for the
+    # other half. A path and its mirror move opposite ways, so averaging
+    # cancels some noise - default only gets worse with a bad shock, never
+    # better, so this works.
     #
-    # Paths [0, half) are the draws, [half, 2*half) are their mirrors in
-    # the same order (path i <-> path half+i). _prob_margin_antithetic
-    # needs that exact layout to pair them back up. Odd N just tacks on
-    # one extra unmirrored path at the end.
+    # Paths [0,half) are the draws, [half,2*half) their mirrors in the
+    # same order (i <-> half+i) - _prob_margin_antithetic depends on that
+    # layout. Odd N tacks on one extra unmirrored path.
     #
-    # shape (*, 12, 2): a pair of normals per path per month - need 2
-    # because income/expenses come out correlated, not independent (below).
+    # shape (*, 12, 2): two normals per path per month, since income and
+    # expenses come out correlated below, not independent.
     half = N // 2
     Z_half = rng.standard_normal((half, 12, 2))
     Z = np.concatenate([Z_half, -Z_half], axis=0)
@@ -100,12 +86,11 @@ def _simulate_defaults(
 
     income   = mu_I + sigma_I * Z[..., 0]   # X = mu + sigma*Z
 
-    # income and expenses shouldn't be independent - a bad income month
-    # (lost hours, job loss) usually drags expenses into a bad month too
-    # (or vice versa). so expenses' random part = rho_IE * income's shock +
-    # its own independent noise, weighted so the result is still a proper
-    # standard normal. rho_IE=1 -> expenses tracks income's shock exactly,
-    # rho_IE=0 -> fully independent, same as the old behaviour.
+    # Bad income months (lost hours, job loss) tend to drag expenses down
+    # too, so these shouldn't be independent. Expenses' random part =
+    # rho_IE * income's shock + its own noise, weighted to stay a proper
+    # standard normal. rho_IE=1 -> tracks income exactly, rho_IE=0 -> old
+    # independent behaviour.
     expenses = mu_E + sigma_E * (rho_IE * Z[..., 0]
                                  + math.sqrt(max(0.0, 1.0 - rho_IE**2)) * Z[..., 1])
 
@@ -145,11 +130,11 @@ def _simulate_defaults(
         consecutive_shortfall_months[short_this_month] += 1
         consecutive_shortfall_months[active & ~short_this_month] = 0
 
-        defaulted |= (consecutive_shortfall_months >= 3) # Basel II's 90-days-past-due default standard so 3 months
+        defaulted |= (consecutive_shortfall_months >= 3)  # Basel II 90-days-past-due -> 3 months
 
-        # Shortfall compounds into next month at NEGATIVE_BALANCE_RATE -
-        # same mechanic as the declared-debt interest above, applied to the
-        # implicit "debt" of being cash-negative.
+        # Shortfall compounds at NEGATIVE_BALANCE_RATE next month - same
+        # mechanic as the declared-debt interest above, just applied to
+        # the implicit debt of being cash-negative.
         in_shortfall = active & (B < 0)
         B[in_shortfall] *= (1.0 + NEGATIVE_BALANCE_RATE)
 
@@ -174,12 +159,7 @@ def prob_default_12m(
     rho_IE: float = 0.0,
     seed: int = 42,
 ) -> float:
-    """
-    Estimate the probability of defaulting within the next 12 months via
-    Monte Carlo simulation. Thin wrapper around _simulate_defaults for
-    callers that just want the point estimate - see that function for the
-    actual simulation and parameter docs.
-    """
+    """Point estimate only - thin wrapper around _simulate_defaults, see that for the actual sim."""
     defaulted = _simulate_defaults(
         mu_I=mu_I, mu_E=mu_E, var_I=var_I, var_E=var_E,
         d=d, p=p, t=t, r=r, B0=B0, N=N, rho_IE=rho_IE, seed=seed,
@@ -194,28 +174,27 @@ class ScoreResult:
     ci_high: float
 
 
-# Log-odds (scorecard-style) mapping from probability of default to a 0-100
-# score - same shape real credit scorecards (FICO etc.) use, chosen over the
-# old linear score = (1-p)*100 because linear understated risk in the middle
-# of the range (30% PD read as a "decent" 70/100). Anchors are a modelling
-# choice, not a fit - no real default-outcome data exists to calibrate
-# against, same situation as NEGATIVE_BALANCE_RATE above. Full derivation,
-# why ln((1-p)/p) specifically, and alternatives considered are in
-# METHODS.md. Not underscore-prefixed like the private helpers below: these
-# get monkeypatched from outside the module by sensitivity_analysis.py.
+# Log-odds (scorecard-style) mapping from PD to a 0-100 score, same shape
+# real scorecards (FICO etc.) use. Replaces the old linear score =
+# (1-p)*100, which understated risk mid-range (30% PD read as a "decent"
+# 70/100). Anchors are a modelling choice, not a fit - no real
+# default-outcome data to calibrate against. See FEATURES.md for the full
+# derivation and alternatives considered.
+#
+# Not underscore-prefixed like the private helpers below: sensitivity_analysis.py
+# monkeypatches these from outside the module.
 ANCHOR_P1, ANCHOR_S1 = 0.01, 90.0   # 1% PD -> 90
 ANCHOR_P2, ANCHOR_S2 = 0.50, 10.0   # 50% PD (coin-flip) -> 10
 
 
 def _score_transform(p: float) -> float:
     """
-    score = offset + factor * ln((1-p)/p): (1-p)/p is the odds of NOT
-    defaulting, so score falls as p rises without needing a negative
-    factor. offset/factor are solved from the two anchors above so
-    re-calibrating only means changing a constant, not this function.
+    score = offset + factor * ln((1-p)/p). (1-p)/p is the odds of NOT
+    defaulting, so score falls as p rises without a negative factor.
+    offset/factor come from the two anchors above - re-calibrating means
+    changing a constant, not this function.
 
-    p=0 and p=1 clamp to 100/0 directly since ln((1-p)/p) is +/-infinity
-    at the boundaries.
+    p=0/p=1 clamp to 100/0 directly (ln((1-p)/p) is +/-infinity there).
     """
     if p <= 0.0:
         return 100.0
@@ -238,20 +217,19 @@ def _prob_margin_antithetic(
     z: float = 1.96,   # Phi^-1(0.975): 95% two-sided normal critical value
 ) -> float:
     """
-    95% margin on the *probability* estimate (0-1 units, not score points),
-    correct for antithetic pairing. Renamed from _score_margin_antithetic:
-    now that the score transform is non-linear, the margin has to be
-    applied in probability space and pushed through the transform at each
-    endpoint, not linearly rescaled by x100 - see shield_score.
+    95% margin on the probability estimate (0-1, not score points),
+    correct for antithetic pairing. Renamed from _score_margin_antithetic
+    now the transform is non-linear - the margin has to go through
+    _score_transform at each endpoint, not get rescaled by x100 (see
+    shield_score).
 
-    Path i and half+i are mirrors (see _simulate_defaults), so they're
-    correlated, not independent trials - can't just plug all N into
-    sqrt(p(1-p)/N). Pairs ARE independent of each other though, so average
-    each pair's outcome (0, 0.5 or 1) and take the standard error on those
-    `half` pair-averages instead.
+    i and half+i are mirrors (see _simulate_defaults) - correlated, not
+    independent, so plugging all N into sqrt(p(1-p)/N) is wrong. Pairs
+    ARE independent of each other, so average each pair (0, 0.5 or 1) and
+    take the SE on those `half` averages instead.
 
-    Odd N's leftover unpaired path gets dropped here (still counted in the
-    point estimate, just has no partner) - negligible either way.
+    Odd N's leftover unpaired path gets dropped here, still counted in
+    the point estimate.
     """
     half = N // 2
     pair_avg = (defaulted[:half].astype(float) + defaulted[half:2 * half].astype(float)) / 2.0
@@ -274,17 +252,15 @@ def shield_score(
     seed: int = 42,
 ) -> ScoreResult:
     """
-    Returns the Shield Score: a log-odds transform of prob_default_12m onto
-    0-100 (see _score_transform), plus a 95% confidence interval around it.
-    The interval reflects Monte Carlo sampling noise only - "if we reran
-    this with a different seed, how much could the score plausibly move" -
-    not real-world uncertainty about the household itself.
+    Log-odds transform of prob_default_12m onto 0-100 (_score_transform),
+    plus a 95% CI from Monte Carlo sampling noise - how much the score
+    could move on a different seed, not real-world uncertainty about the
+    household.
 
-    ci_low/ci_high are NOT symmetric around score - expected under any
-    non-linear transform. The margin is computed in probability space first,
-    then each endpoint is pushed through the same transform as the point
-    estimate, rather than linearly rescaling a single +/- margin (which only
-    ever worked because the old transform was linear).
+    ci_low/ci_high aren't symmetric around score (non-linear transform).
+    Margin is computed in probability space, then each endpoint goes
+    through the same transform as the point estimate - can't just rescale
+    a single +/- margin like the old linear version did.
     """
     defaulted = _simulate_defaults(
         mu_I=mu_I, mu_E=mu_E, var_I=var_I, var_E=var_E,

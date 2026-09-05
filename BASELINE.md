@@ -10,7 +10,7 @@ Reference scores for the three test accounts in `data/`, against the current eng
 
 CVs computed as `sqrt(var_income or var_expenses) / mean`. None clamp. Account 3's income sits closest to the 0.78 cap, at 0.718.
 
-**Two changes moved these scores during development.** The default rule went from single-breach to 3-consecutive-months, which mattered most for Account 3 (a rough patch no longer counts as default on its own). The score transform went from linear to log-odds, which dropped Account 1 from 2 to 0 and Account 3 from 82 to 36.2, same underlying risk, an honest scale instead of a misleading one. Full reasoning for both is in `METHODS.md`.
+**Two changes moved these scores during development.** The default rule went from single-breach to 3-consecutive-months, which mattered most for Account 3 (a rough patch no longer counts as default on its own). The score transform went from linear to log-odds, which dropped Account 1 from 2 to 0 and Account 3 from 82 to 36.2, same underlying risk, an honest scale instead of a misleading one. Full reasoning for both is in `FEATURES.md`.
 
 ## How to use this
 
