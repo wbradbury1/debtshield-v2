@@ -36,15 +36,19 @@ The engine uses antithetic sampling to cut estimator variance for close to free 
 
 ## Shield Score
 
-Shield Score is a linear transform of that probability: score = (1 - P(default)) * 100. It only loses resolution well beyond what 200,000 paths can reliably estimate in the first place - sampling error is the real limit on precision, which is what the confidence interval below is for.
+Shield Score maps that probability onto 0-100 through a log-odds transform - the same family of mapping real credit scorecards (FICO and similar) use, not a straight percentage-to-score conversion. A straight-line version undersold risk in the middle of the range (a 30% chance of default read as a "decent" 70/100); this version falls off faster as default risk rises, so the middle of the scale actually means something. Anchor points, the exact formula, and alternatives considered are in `METHODS.md`.
 
 ## Confidence interval
 
-`/score/` reports a 95% confidence interval (`shield_score_ci_low`/`shield_score_ci_high`) alongside the score, since the score is itself a Monte Carlo estimate with sampling error - rerun with a different seed and it moves a little. Full derivation, the antithetic-pair correction, and the course citation it's built on are in `METHODS.md`. `/score/` accepts an optional `seed` parameter for inspecting seed-to-seed movement directly.
+`/score/` reports a 95% confidence interval (`shield_score_ci_low`/`shield_score_ci_high`) alongside the score, since the score is itself a Monte Carlo estimate with sampling error - rerun with a different seed and it moves a little. Because the score transform above is non-linear, the two bounds generally sit at different distances from the score itself - expected, not a bug. Full derivation, the antithetic-pair correction, and the course citation it's built on are in `METHODS.md`. `/score/` accepts an optional `seed` parameter for inspecting seed-to-seed movement directly.
 
 ## Convergence study
 
 `debt-shield-extension/convergence_study.py` checks the CI and variance-reduction claims above against actual repeated runs rather than just the maths behind them - rerunning the sim at increasing path counts and confirming the score's precision improves at the rate Monte Carlo theory predicts. Full methodology, the fitted result, and the results table are in `METHODS.md`; raw numbers in `docs/convergence_study.md` / `docs/convergence_study.csv`.
+
+## Sensitivity analysis
+
+`debt-shield-extension/sensitivity_analysis.py` checks how much the score actually depends on the two judgement calls with no external anchor to justify them: the score-transform anchor points, and the tail-risk tolerance behind the variance cap. Both move the score by a real, non-trivial amount under a plausible re-pick - confirmation that these choices matter, not just cosmetic detail. Full results and reasoning for what was (and wasn't) tested are in `METHODS.md`.
 
 ## Potential extensions
 

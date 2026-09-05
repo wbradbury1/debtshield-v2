@@ -23,6 +23,10 @@ import numpy as np
 # the conversion has to actually preserve it.
 NEGATIVE_BALANCE_RATE = 1.40 ** (1 / 12) - 1
 
+# 200,000 paths - convergence_study.md suggests past this point, added
+# computation buys diminishing precision (SE only shrinks as 1/sqrt(N)).
+N_PATHS = 200_000
+
 
 def _simulate_defaults(
     mu_I: float,
@@ -34,7 +38,7 @@ def _simulate_defaults(
     t: list[float],
     r: list[float],
     B0: float = 0.0,
-    N: int = 200_000,
+    N: int = N_PATHS,
     rho_IE: float = 0.0,
     seed: int = 42,
 ) -> np.ndarray:
@@ -159,7 +163,7 @@ def _simulate_defaults(
         consecutive_shortfall_months[short_this_month] += 1
         consecutive_shortfall_months[active & ~short_this_month] = 0
 
-        defaulted |= (consecutive_shortfall_months >= 3)
+        defaulted |= (consecutive_shortfall_months >= 3) # Basel II's 90-days-past-due default standard so 3 months
 
         # Shortfall compounds into next month at NEGATIVE_BALANCE_RATE -
         # same mechanic as the declared-debt interest above, applied to the
@@ -184,7 +188,7 @@ def prob_default_12m(
     t: list[float],
     r: list[float],
     B0: float = 0.0,
-    N: int = 200_000,
+    N: int = N_PATHS,
     rho_IE: float = 0.0,
     seed: int = 42,
 ) -> float:
@@ -250,7 +254,12 @@ def _score_transform(p: float) -> float:
     return max(0.0, min(100.0, raw))
 
 
-def _prob_margin_antithetic(defaulted: np.ndarray, N: int, z: float = 1.96) -> float:
+def _prob_margin_antithetic(
+    defaulted: np.ndarray,
+    N: int,
+    z: float = 1.96,  # 95% two-sided normal critical value (Phi(1.96)~=0.975,
+                       # 2.5% in each tail). 
+) -> float:
     """
     95% margin on the *probability* estimate (0-1 units, not score points) -
     correct for antithetic pairing. Renamed from _score_margin_antithetic:
@@ -283,7 +292,7 @@ def shield_score(
     t: list[float],
     r: list[float],
     B0: float = 0.0,
-    N: int = 200_000,
+    N: int = N_PATHS,
     rho_IE: float = 0.0,
     seed: int = 42,
 ) -> ScoreResult:

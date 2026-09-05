@@ -33,6 +33,22 @@ B[in_shortfall] *= (1 + NEGATIVE_BALANCE_RATE)
 
 **Why the conversion isn't simple division.** "EAR" specifically means the stated 40% is already the effective *annual* figure - compounding monthly at `0.40/12` and letting that run for 12 months would actually land at `(1 + 0.40/12)**12 - 1 ≈ 48.2%` effective annual, a different, uncited number. The correct inverse is `(1 + EAR)^(1/12) - 1`: compounding this monthly rate for 12 months reproduces exactly 40% annual, by construction. This is deliberately not the same convention as declared-debt APRs elsewhere (`main.py`, `apr/100/12`) - those are user-supplied headline APR figures with no claim to be an *effective* rate, so simple division is a reasonable simplification there. Here, "EAR" is doing real work in the citation (it's what the sourced bank data actually reports), so the conversion has to actually preserve it rather than quietly turning a precise 40% into an unlabelled ~48%.
 
+## Score transform
+
+**Formula.** `score = offset + factor * ln((1-p)/p)`, where `p` is the Monte Carlo default probability. Replaces the old `score = (1-p)*100`.
+
+**Why `ln((1-p)/p)` specifically.** `(1-p)/p` is the odds of the household *not* defaulting. As `p` falls, that ratio grows and its log grows with it, so a positive `factor` gives a score that rises as risk falls - no sign flip needed. This is the same convention real credit scorecards (FICO, VantageScore) use internally - "good:bad odds" - which is also why this shape was picked over alternatives (below): it's a named, standard technique, not a bespoke curve.
+
+**Alternatives considered.** A power-law transform (`score = A*(1-p)^k`) would also compress the top of the range and punish high `p` harder than linear, but it isn't a named industry-standard technique the way log-odds scorecard scaling is - harder to point to and defend. A categorical PD-to-rating-band mapping (S&P/Moody's-style letter grades from PD thresholds) is arguably more honest about the model's real precision - given the sampling noise a Monte Carlo estimate carries, a score of "82.3" implies more resolution than the estimate actually supports, and letter grades sidestep that. It wasn't adopted here because it's a different output shape entirely (discrete bands, not a continuous 0-100 score) and would mean redesigning the frontend gauge and every downstream doc/table that assumes a numeric score - out of scope for a transform swap. Worth knowing as the more rigorous real-world alternative, not chosen for scope reasons.
+
+**Anchor points.** `p=0.01 -> 90`, `p=0.50 -> 10`. Chosen, not fitted - there's still no real default-outcome data to calibrate against (same situation as `NEGATIVE_BALANCE_RATE`). 1% PD reads as "good, not excellent" (90, leaving room above it); 50% PD (coin-flip) reads as "terrible" (10), not "50/100 average". Picking `p=0.50` as the second anchor makes the algebra land cleanly: `ln((1-0.5)/0.5) = ln(1) = 0`, so `offset` is just the score at `p=0.5` by construction (10), and `factor` is solved from the other anchor: `factor = (90 - 10) / ln(99) ≈ 17.41`.
+
+Under this, `p=0.30` (the case that motivated dropping the linear transform) now scores **~24.7** instead of 70 - squarely "risky", not "decent".
+
+**Edge cases.** `p=0` and `p=1` are handled explicitly (`_score_transform` returns 100 / 0 directly) since `ln((1-p)/p)` is undefined at the boundaries - same clamping spirit as the old transform's `max(0, min(100, ...))`.
+
+**A property worth flagging, not fixing.** The anchors make the curve steep near low `p`: `p=0.01` scores 90 but `p=0.02` already scores ~78 - a 12-point drop for one percentage point of PD. That's an intrinsic feature of log-odds scaling concentrating resolution where the anchors are (real FICO scorecards show the same behaviour near their own anchor points), not a bug, but it's exactly the kind of thing the sensitivity analysis (see plan) should quantify properly rather than eyeballing here.
+
 ## Antithetic sampling
 
 **The mechanism.** Rather than drawing N fully independent shocks, the engine draws N/2 and mirrors each one (negates it) to get the other N/2. Path `i` (for `i` in `[0, half)`) pairs with path `half + i`, using `Z` and `-Z` respectively.
@@ -65,7 +81,9 @@ p_hat = (1/N) * sum(defaulted_i)
       = (1/half) * sum_k(pair_avg_k)
 ```
 
-so `p_hat` is literally the sample mean of the `half` pair-averages, and since those pair-averages *are* iid, the ordinary sample-mean standard error applies directly to them: `se = std(pair_avg) / sqrt(half)`. This is what `_score_margin_antithetic` computes - same CLT logic as the base derivation, just applied to the unit that's actually independent (the pair, not the path).
+so `p_hat` is literally the sample mean of the `half` pair-averages, and since those pair-averages *are* iid, the ordinary sample-mean standard error applies directly to them: `se = std(pair_avg) / sqrt(half)`. This is what `_prob_margin_antithetic` computes (in probability units, `z * se`) - same CLT logic as the base derivation, just applied to the unit that's actually independent (the pair, not the path).
+
+**Mapping through the score transform.** The margin above lives in probability space. `shield_score` builds `[prob - margin, prob + margin]` (clamped to `[0,1]`) and pushes *each endpoint* through `_score_transform` separately, rather than computing one score and rescaling a margin onto it - that rescaling only worked when the transform was linear. Because the transform is monotonically decreasing in `p`, the lower probability bound maps to the *higher* score bound and vice versa. It also means `ci_low`/`ci_high` are generally not equidistant from `score` - expected under a non-linear map, not a bug.
 
 **Caveats, stated plainly.** The interval is approximate (asymptotic), not exact - fine at N in the hundreds of thousands. Bounds clamp to [0, 100] like the score itself, so a score sitting right at the boundary shows a narrower interval than the true one. If N is odd, one leftover unpaired path is folded into the point estimate but dropped from the pair-average SE calculation - negligible for any N in practical use.
 
@@ -79,7 +97,7 @@ The engine runs on a fixed seed by default (identical inputs always reproduce th
 
 - **empirical SE** - the standard deviation of the point estimate across the 30 seeds. The actual measured spread, not a formula.
 - **naive iid SE** - `sqrt(p_bar(1-p_bar)/N)`, what the plain independent-trials formula would predict if antithetic pairing weren't happening.
-- **analytic pair SE** - the actual formula `_score_margin_antithetic` uses, from a single run per N.
+- **analytic pair SE** - the actual formula `_prob_margin_antithetic` uses, from a single run per N.
 
 **Results.**
 
@@ -96,6 +114,33 @@ The engine runs on a fixed seed by default (identical inputs always reproduce th
 Fitted slope of `log(empirical SE)` against `log(N)`: **-0.500**, matching the O(1/√N) rate Monte Carlo theory predicts almost exactly.
 
 **Interpretation.** `analytic pair SE` sits below `naive iid SE` at every N - the variance reduction from antithetic pairing is showing up empirically, not just asserted. `empirical SE` and `analytic pair SE` track each other closely, sitting slightly above or below one another at different N (e.g. `empirical` a touch above `analytic` at N=50,000/100,000, a touch below elsewhere) - expected noise from estimating a standard deviation off only 30 reps (relative uncertainty on a std-of-30 estimate is roughly ±13%), not a discrepancy worth chasing further. Raw numbers in `docs/convergence_study.csv` / `docs/convergence_study.md`; rerun with `python convergence_study.py` from `debt-shield-extension/`.
+
+## Sensitivity analysis
+
+`debt-shield-extension/sensitivity_analysis.py` tests the two scoring-engine assumptions that have no external anchor: the score-transform anchor points, and `MAX_CV`'s underlying tail-tolerance. `z=1.96`, `N`, the 3-month default threshold, and `NEGATIVE_BALANCE_RATE` were deliberately left out - each traces to an external anchor (a mathematical definition, the convergence study itself, Basel II, or real surveyed bank rates respectively), so sweeping them would just re-derive an already-fixed external fact, not test our own judgement. Both sweeps run on Account 3 (not degenerate at 0 or 100, so there's room to see movement) at a fixed seed throughout, so any change in score is attributable only to the swept parameter.
+
+**Anchor points.** Held the 1%/50% PD reference points fixed, varied only the score assigned to each:
+
+| anchors | 1% PD -> | 50% PD -> | Shield Score |
+|---|---|---|---|
+| current | 90 | 10 | 36.2 |
+| gentler | 95 | 20 | 44.5 |
+| harsher | 85 | 5 | 31.2 |
+
+A plausible re-pick of the anchors moves Account 3's score by roughly 5-8 points either way. That's a real, non-trivial amount - confirmation that the anchor choice is doing real work, not a cosmetic detail, and exactly why it was worth testing rather than asserting.
+
+**`MAX_CV` tail tolerance.** Account 3's actual income CV is 0.718, sitting just under today's production cap (`MAX_CV=0.78`, from a 10% tail-tolerance assumption) - so it's never clamped in practice. Tightening the tolerance assumption changes that:
+
+| tail tolerance | implied MAX_CV | clamp fires? | income CV used | Shield Score |
+|---|---|---|---|---|
+| 20% | 1.188 | No | 0.718 | 36.2 |
+| 10% (current) | 0.780 | No | 0.718 | 36.2 |
+| 5% | 0.608 | Yes | 0.608 | 42.4 |
+| 2.5% | 0.510 | Yes | 0.510 | 50.0 |
+
+At the production tolerance nothing changes - the finding isn't "this is broken," it's a genuine limitation worth being aware of: a stricter tail-tolerance choice would suppress some of Account 3's real, CSV-derived income volatility and make it look artificially safer, since the clamp caps the *input* variance the simulation sees, not just the output score. Not a bug (the clamp exists specifically to prevent implausible variance from breaking the model, per the "Bug fixes" section in README), but confirmation that the 10% tolerance is a real judgement call with real downstream consequences, not an inert default.
+
+Raw numbers in `docs/sensitivity_analysis.csv` / `docs/sensitivity_analysis.md`; rerun with `python sensitivity_analysis.py` from `debt-shield-extension/`.
 
 ## Scoped out
 

@@ -132,7 +132,6 @@ def get_score(name: str, seed: int = 42):
         t      = t_list,
         r      = r_list,
         B0     = user.current_savings,
-        N      = 200_000,
         rho_IE = rho_IE,
         seed   = seed,
     )
