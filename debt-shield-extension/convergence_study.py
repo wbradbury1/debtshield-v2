@@ -7,11 +7,11 @@ using several independent seeds per N. Checks two things:
 1. Does the estimate's actual spread across repeated runs (the "empirical
    SE") shrink at the theoretical O(1/sqrt(N)) rate for Monte Carlo? Fitting
    log(empirical SE) against log(N) should give a slope near -0.5.
-2. Does antithetic sampling actually reduce variance, not just in theory?
-   Empirical SE sitting below the naive iid formula sqrt(p(1-p)/N) is that
-   shown directly, and empirical SE sitting close to the antithetic-pair SE
-   (the same formula _prob_margin_antithetic uses) validates that formula
-   against real repeated-run behaviour rather than just its own derivation.
+2. Does antithetic sampling reduce variance, not just in theory? Empirical
+   SE sitting below the naive iid formula sqrt(p(1-p)/N) shows that
+   directly; empirical SE sitting close to the antithetic-pair SE (the
+   same formula _prob_margin_antithetic uses) validates that formula
+   against real repeated-run behaviour, not just its own derivation.
 
 Run from debt-shield-extension/:
     python convergence_study.py
@@ -25,9 +25,9 @@ import numpy as np
 
 from scoring import _simulate_defaults
 
-# Account 3 from data/ (BASELINE.md's "in-between" case) - not degenerate at
-# 0 or 100 like Accounts 1 and 2, so the estimate has room to actually move
-# between reps, which is the whole point of this study.
+# Account 3 from data/. Chosen because its default probability sits in the
+# middle rather than pinned to 0 or 1 like Accounts 1/2 - a Monte Carlo
+# estimator has nothing to converge to if the answer is already 0% or 100%.
 ACCOUNT = dict(
     mu_I=670.89, mu_E=627.24, var_I=232069.5475384616, var_E=1830.378938461537,
     d=[0.0], p=[0.0], t=[math.inf], r=[0.0], B0=1161.18, rho_IE=-0.5800690718917769,
@@ -68,7 +68,7 @@ def run():
     empirical_ses = np.array([row[2] for row in rows], dtype=float)
 
     # fit log(se) = slope*log(N) + intercept - theory predicts slope = -0.5
-    slope, _intercept = np.polyfit(np.log(Ns), np.log(empirical_ses), 1)
+    slope, _ = np.polyfit(np.log(Ns), np.log(empirical_ses), 1)
     print(f"\nfitted slope: {slope:.3f} (theory: -0.5)")
 
     write_outputs(rows, slope)
@@ -91,7 +91,7 @@ def write_outputs(rows, slope):
         f.write(
             f"Account 3 profile, {REPS} independent seeds per N. `empirical_se` "
             "is the standard deviation of the point estimate across those seeds - "
-            "the actual measured spread, not a formula. `naive_iid_se` is what "
+            "the measured spread, not a formula. `naive_iid_se` is what "
             "sqrt(p(1-p)/N) predicts if all N paths were independent (they're "
             "not, because of antithetic sampling). `analytic_pair_se` is the "
             "pair-based formula `_prob_margin_antithetic` uses (from a single "

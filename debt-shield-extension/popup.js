@@ -1,4 +1,4 @@
-// Debt Shield v2 — Popup Script
+// Debt Shield v2: Popup Script
 
 let appState = null;
 
@@ -254,7 +254,7 @@ function attachEvents() {
     });
   });
 
-  // Profile fields — save on every keystroke, auto-sync after user stops typing
+  // Profile fields: save on every keystroke, auto-sync after user stops typing
   let autoSyncTimer = null;
 
   async function saveAndScheduleSync() {

@@ -16,7 +16,7 @@ class Debt(BaseModel):
 
 class UserOnboarding(BaseModel):
     name: str
-    current_savings: float   # NOT bounded — overdrafts are legitimately negative
+    current_savings: float   # NOT bounded: overdrafts are legitimately negative
     average_income: float = Field(ge=0)
     average_expenses: float = Field(ge=0)
     var_income: Optional[float] = None

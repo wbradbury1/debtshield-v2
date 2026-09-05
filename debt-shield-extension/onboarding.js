@@ -1,6 +1,6 @@
 const TOTAL_STEPS = 5;
 let currentStep = 0;
-let goals = [];   // [{ id, name, amount }]  — array order = priority (index 0 = highest)
+let goals = [];   // [{ id, name, amount }], array order = priority (index 0 = highest)
 let debts = [];
 let savingsAllocPct = 50;
 const API_BASE = 'http://localhost:8000';
@@ -39,9 +39,9 @@ function validate(step) {
     if (!csvData) { showError('err-1'); return false; }
   }
   if (step === 2) {
-    // Goals are optional — you can't score worse for not having one, since
+    // Goals are optional: you can't score worse for not having one, since
     // savings_goals never reaches the simulator (display/tracking only).
-    // Any goal that WAS started still needs to be complete, though — no
+    // Any goal that WAS started still needs to be complete, though, no
     // half-filled entries silently dropped.
     for (const g of goals) {
       if (!g.name.trim() || g.amount === '' || isNaN(parseFloat(g.amount))) {
@@ -200,9 +200,9 @@ function renderDebts() {
     const opts = DEBT_CATEGORIES.map(c => `<option value="${c}" ${d.category===c?'selected':''}>${c}</option>`).join('');
     const div = document.createElement('div'); div.className = 'list-item';
     // Field order: category/label, then balance+APR, then term, then
-    // monthly payment LAST — the payment guide needs balance/APR/term
+    // monthly payment LAST: the payment guide needs balance/APR/term
     // entered first to compute anything, and the payment field must stay
-    // an honest blank the user fills in themselves (see paymentHintText —
+    // an honest blank the user fills in themselves (see paymentHintText,
     // this is a hint, never a pre-fill, so a declared payment always
     // reflects what's actually in the user's statement).
     div.innerHTML = `
@@ -360,7 +360,7 @@ async function submitData() {
         apiBase: API_BASE,
       });
     } catch (e) {
-      // Not fatal — popup can sync manually
+      // Not fatal: popup can sync manually
     }
 
     // Show success state then redirect to dashboard
@@ -496,7 +496,7 @@ function parseCSV(text, filename) {
   const outlierCount = rows.length - filteredRows.length;
 
   // Group by calendar month to compute per-month income and expenses.
-  // Expenses here are INCLUSIVE of debt payments — the backend strips
+  // Expenses here are INCLUSIVE of debt payments: the backend strips
   // debt payments out before passing mu_E to the simulator.
   const { monthKeys, incomeArr, expenseArr } = groupByMonth(filteredRows);
   const numMonths = monthKeys.length;
@@ -560,7 +560,7 @@ function parseCSV(text, filename) {
 /* ─── HELPERS ─── */
 // parseDate, splitCSVLine, median, mean, variance, filterOneOffTransactions,
 // groupByMonth, pearsonCorrelation now live in csv-utils.js (loaded before
-// this file in onboarding.html) — shared with dashboard.js so the two
+// this file in onboarding.html), shared with dashboard.js so the two
 // pipelines can't drift apart again.
 function resetCSV() {
   csvData = null;

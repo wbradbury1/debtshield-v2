@@ -7,7 +7,7 @@ const FALLBACK_SCORE = 70;
 /* ════════════════════════════════════════
    STATE
 ════════════════════════════════════════ */
-let goals   = [];   // [{ id, name, target, priority }] — sorted by priority asc
+let goals   = [];   // [{ id, name, target, priority }], sorted by priority asc
 let debts   = [];
 let profile = { income: 0, expenses: 0, savings: 0, var_income: null, var_expenses: null, rho_ie: null };
 let savingsAllocPct = 50;  // % of monthly surplus going to goals
@@ -145,7 +145,7 @@ function updateStats() {
 }
 
 /* ════════════════════════════════════════
-   GOALS RENDER — draggable, shows ETA
+   GOALS RENDER: draggable, shows ETA
 ════════════════════════════════════════ */
 let goalDragSrcIndex = null;
 
@@ -256,7 +256,7 @@ function renderDebts() {
 }
 
 /* ════════════════════════════════════════
-   GOAL CRUD — no timeframe
+   GOAL CRUD: no timeframe
 ════════════════════════════════════════ */
 function openGoalModal(id) {
   document.getElementById('goal-edit-id').value = id || '';
@@ -328,7 +328,7 @@ function openDebtModal(id) {
   }
   // toggleDebtIndefinite() above already calls updateDebtPaymentHint(), so
   // the hint reflects whatever values (edit-mode prefill, or the blank
-  // reset) were just set into the fields — no extra call needed here.
+  // reset) were just set into the fields, no extra call needed here.
   openModal('debt-modal-overlay');
 }
 
@@ -541,7 +541,7 @@ function parseProfileCSV(text) {
 
 // median, filterOneOffTransactions, splitCSVLine, parseDate, mean, variance,
 // groupByMonth, pearsonCorrelation now live in csv-utils.js (loaded before
-// this file in dashboard.html) — shared with onboarding.js so the two
+// this file in dashboard.html), shared with onboarding.js so the two
 // pipelines can't drift apart again.
 
 function applyProfileCSV() {
@@ -700,7 +700,7 @@ async function init() {
 }
 
 /* ════════════════════════════════════════
-   DOM WIRING + INIT — all DOM access here
+   DOM WIRING + INIT: all DOM access here
 ════════════════════════════════════════ */
 document.addEventListener('DOMContentLoaded', () => {
 

@@ -1,6 +1,6 @@
 # Sensitivity analysis
 
-Tests the two scoring-engine assumptions with no external anchor: the score-transform anchor points, and MAX_CV's underlying tail-tolerance. `z=1.96`, `N`, the 3-month default threshold, and `NEGATIVE_BALANCE_RATE` were deliberately excluded - each traces to an external anchor (a mathematical definition, the convergence study itself, Basel II, or real surveyed bank rates), so sweeping them would just re-derive an already-fixed external fact rather than test our own judgement. Both sweeps run on Account 3 (BASELINE.md's "in-between" case - not degenerate at 0 or 100, so there's room to actually see movement) at a fixed seed (42) throughout, so any movement below is attributable only to the swept parameter, never a different Monte Carlo draw.
+Tests the two scoring-engine assumptions with no external anchor: the score-transform anchor points, and MAX_CV's underlying tail-tolerance. `z=1.96`, `N`, the 3-month default threshold, and `NEGATIVE_BALANCE_RATE` were excluded: each traces to an external anchor (a mathematical definition, the convergence study itself, Basel II, or real surveyed bank rates), so sweeping them would just re-derive an already-fixed external fact rather than test our own judgement. Both sweeps run on Account 3 (BASELINE.md's "in-between" case, not degenerate at 0 or 100, so there's room to see movement) at a fixed seed (42) throughout, so any movement below is attributable only to the swept parameter, never a different Monte Carlo draw.
 
 ## Anchor points
 

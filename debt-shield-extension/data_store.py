@@ -1,5 +1,5 @@
 """
-Persistent data store — survives uvicorn --reload.
+Persistent data store: survives uvicorn --reload.
 Users are written to debt_shield_users.json next to this file so the
 in-memory dict is always warm after any hot-reload.
 """

@@ -1,5 +1,5 @@
 // ============================================================
-// DEBT SHIELD v2 — Background Service Worker
+// DEBT SHIELD v2: Background Service Worker
 // ============================================================
 
 const DEFAULTS = {

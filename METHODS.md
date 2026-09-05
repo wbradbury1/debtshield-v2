@@ -1,6 +1,6 @@
 # Methods
 
-The technical write-up. README covers what the project does and how to run it; this covers how the statistics actually work, with the derivations and the reasoning behind each choice. Written from what's genuinely built, not aspirational - if it's not in `scoring.py`, it's not in here either.
+The technical write-up. README covers what the project does and how to run it; this covers how the statistics work, with the derivations and the reasoning behind each choice. Written from what's built, not aspirational: if it's not in `scoring.py`, it's not in here either.
 
 ## Shock model
 
@@ -29,9 +29,9 @@ NEGATIVE_BALANCE_RATE = (1 + 0.40) ** (1/12) - 1   # ≈ 0.02844 (2.844%/month)
 B[in_shortfall] *= (1 + NEGATIVE_BALANCE_RATE)
 ```
 
-**Where 40% comes from.** Deliberately harsh, not fitted: 40% EAR is what most major UK banks charge on arranged overdrafts as of 2026 - Lloyds, Halifax, HSBC, Nationwide, Santander and First Direct all sit at 39.9% EAR, rounded up; Barclays is lower at 35%. It's the top of *ordinary* (non-payday) borrowing cost, chosen to err harsh rather than underestimate what an uncovered shortfall actually costs a household.
+**Where 40% comes from.** Deliberately harsh, not fitted: 40% EAR is what most major UK banks charge on arranged overdrafts as of 2026 - Lloyds, Halifax, HSBC, Nationwide, Santander and First Direct all sit at 39.9% EAR, rounded up; Barclays is lower at 35%. It's the top of *ordinary* (non-payday) borrowing cost, chosen to err harsh rather than underestimate what an uncovered shortfall costs a household.
 
-**Why the conversion isn't simple division.** "EAR" specifically means the stated 40% is already the effective *annual* figure - compounding monthly at `0.40/12` and letting that run for 12 months would actually land at `(1 + 0.40/12)**12 - 1 ≈ 48.2%` effective annual, a different, uncited number. The correct inverse is `(1 + EAR)^(1/12) - 1`: compounding this monthly rate for 12 months reproduces exactly 40% annual, by construction. This is deliberately not the same convention as declared-debt APRs elsewhere (`main.py`, `apr/100/12`) - those are user-supplied headline APR figures with no claim to be an *effective* rate, so simple division is a reasonable simplification there. Here, "EAR" is doing real work in the citation (it's what the sourced bank data actually reports), so the conversion has to actually preserve it rather than quietly turning a precise 40% into an unlabelled ~48%.
+**Why the conversion isn't simple division.** "EAR" means the stated 40% is already the effective *annual* figure. Compounding monthly at `0.40/12` and running that for 12 months lands at `(1 + 0.40/12)**12 - 1 ≈ 48.2%` effective annual, a different, uncited number. The correct inverse is `(1 + EAR)^(1/12) - 1`: compounding this monthly rate for 12 months reproduces exactly 40% annual, by construction. This isn't the same convention as declared-debt APRs elsewhere (`main.py`, `apr/100/12`), those are user-supplied headline APR figures with no claim to be an *effective* rate, so simple division is a reasonable simplification there. Here, "EAR" is doing real work in the citation (it's what the sourced bank data reports), so the conversion has to preserve it rather than turning a precise 40% into an unlabelled ~48%.
 
 ## Score transform
 
@@ -39,7 +39,7 @@ B[in_shortfall] *= (1 + NEGATIVE_BALANCE_RATE)
 
 **Why `ln((1-p)/p)` specifically.** `(1-p)/p` is the odds of the household *not* defaulting. As `p` falls, that ratio grows and its log grows with it, so a positive `factor` gives a score that rises as risk falls - no sign flip needed. This is the same convention real credit scorecards (FICO, VantageScore) use internally - "good:bad odds" - which is also why this shape was picked over alternatives (below): it's a named, standard technique, not a bespoke curve.
 
-**Alternatives considered.** A power-law transform (`score = A*(1-p)^k`) would also compress the top of the range and punish high `p` harder than linear, but it isn't a named industry-standard technique the way log-odds scorecard scaling is - harder to point to and defend. A categorical PD-to-rating-band mapping (S&P/Moody's-style letter grades from PD thresholds) is arguably more honest about the model's real precision - given the sampling noise a Monte Carlo estimate carries, a score of "82.3" implies more resolution than the estimate actually supports, and letter grades sidestep that. It wasn't adopted here because it's a different output shape entirely (discrete bands, not a continuous 0-100 score) and would mean redesigning the frontend gauge and every downstream doc/table that assumes a numeric score - out of scope for a transform swap. Worth knowing as the more rigorous real-world alternative, not chosen for scope reasons.
+**Alternatives considered.** A power-law transform (`score = A*(1-p)^k`) would also compress the top of the range and punish high `p` harder than linear, but it isn't a named industry-standard technique the way log-odds scorecard scaling is: harder to defend in an interview. A categorical PD-to-rating-band mapping (S&P/Moody's-style letter grades from PD thresholds) is arguably more honest about the model's real precision. Given the sampling noise a Monte Carlo estimate carries, a score of "82.3" implies more resolution than the estimate supports; letter grades sidestep that. Not adopted here because it's a different output shape (discrete bands, not a continuous 0-100 score), and would mean redesigning the frontend gauge and every downstream table that assumes a numeric score. The more rigorous real-world alternative, just out of scope for a transform swap.
 
 **Anchor points.** `p=0.01 -> 90`, `p=0.50 -> 10`. Chosen, not fitted - there's still no real default-outcome data to calibrate against (same situation as `NEGATIVE_BALANCE_RATE`). 1% PD reads as "good, not excellent" (90, leaving room above it); 50% PD (coin-flip) reads as "terrible" (10), not "50/100 average". Picking `p=0.50` as the second anchor makes the algebra land cleanly: `ln((1-0.5)/0.5) = ln(1) = 0`, so `offset` is just the score at `p=0.5` by construction (10), and `factor` is solved from the other anchor: `factor = (90 - 10) / ln(99) ≈ 17.41`.
 
@@ -47,7 +47,7 @@ Under this, `p=0.30` (the case that motivated dropping the linear transform) now
 
 **Edge cases.** `p=0` and `p=1` are handled explicitly (`_score_transform` returns 100 / 0 directly) since `ln((1-p)/p)` is undefined at the boundaries - same clamping spirit as the old transform's `max(0, min(100, ...))`.
 
-**A property worth flagging, not fixing.** The anchors make the curve steep near low `p`: `p=0.01` scores 90 but `p=0.02` already scores ~78 - a 12-point drop for one percentage point of PD. That's an intrinsic feature of log-odds scaling concentrating resolution where the anchors are (real FICO scorecards show the same behaviour near their own anchor points), not a bug, but it's exactly the kind of thing the sensitivity analysis (see plan) should quantify properly rather than eyeballing here.
+**A property worth flagging, not fixing.** The anchors make the curve steep near low `p`: `p=0.01` scores 90 but `p=0.02` already scores ~78 - a 12-point drop for one percentage point of PD. That's an intrinsic feature of log-odds scaling concentrating resolution where the anchors are (real FICO scorecards show the same behaviour near their own anchor points), not a bug, but it's exactly the kind of thing the "Sensitivity analysis" section below quantifies properly rather than eyeballing here.
 
 ## Antithetic sampling
 
@@ -61,7 +61,7 @@ Var[(f(Z) + f(-Z)) / 2] = [Var(f(Z)) + Var(f(-Z)) + 2*Cov(f(Z), f(-Z))] / 4
 
 If `Z` and `-Z` gave independent draws, the covariance term would vanish and this would just be the usual "averaging halves variance" result. But they're not independent - they're mirror images - so if `f` responds to the shock in opposite directions for `Z` versus `-Z`, `Cov(f(Z), f(-Z))` is negative, and the pair-average has *less* variance than plain averaging predicts.
 
-**Why that covariance is actually negative here.** Default probability responds monotonically to the shocks: an unusually bad income draw (`Z` very negative) pushes a path toward default; the mirrored path gets an unusually good income draw (`-Z` very positive), pushing it away from default. So across a pair, one path being more likely to default comes with its mirror being less likely to default - exactly the negative correlation the variance-reduction argument needs. This monotonicity is the condition antithetic sampling requires to actually help; it wouldn't do anything for a non-monotonic function of the shocks.
+**Why that covariance is negative here.** Default probability responds monotonically to the shocks: an unusually bad income draw (`Z` very negative) pushes a path toward default; the mirrored path gets an unusually good income draw (`-Z` very positive), pushing it away from default. Across a pair, one path being more likely to default comes with its mirror being less likely to default, exactly the negative correlation the variance-reduction argument needs. This monotonicity is the condition antithetic sampling requires to help; it wouldn't do anything for a non-monotonic function of the shocks.
 
 ## Confidence interval
 
@@ -81,7 +81,7 @@ p_hat = (1/N) * sum(defaulted_i)
       = (1/half) * sum_k(pair_avg_k)
 ```
 
-so `p_hat` is literally the sample mean of the `half` pair-averages, and since those pair-averages *are* iid, the ordinary sample-mean standard error applies directly to them: `se = std(pair_avg) / sqrt(half)`. This is what `_prob_margin_antithetic` computes (in probability units, `z * se`) - same CLT logic as the base derivation, just applied to the unit that's actually independent (the pair, not the path).
+so `p_hat` is the sample mean of the `half` pair-averages, and since those pair-averages *are* iid, the ordinary sample-mean standard error applies directly to them: `se = std(pair_avg) / sqrt(half)`. This is what `_prob_margin_antithetic` computes (in probability units, `z * se`), same CLT logic as the base derivation, just applied to the unit that's independent (the pair, not the path).
 
 **Mapping through the score transform.** The margin above lives in probability space. `shield_score` builds `[prob - margin, prob + margin]` (clamped to `[0,1]`) and pushes *each endpoint* through `_score_transform` separately, rather than computing one score and rescaling a margin onto it - that rescaling only worked when the transform was linear. Because the transform is monotonically decreasing in `p`, the lower probability bound maps to the *higher* score bound and vice versa. It also means `ci_low`/`ci_high` are generally not equidistant from `score` - expected under a non-linear map, not a bug.
 
@@ -93,7 +93,7 @@ The engine runs on a fixed seed by default (identical inputs always reproduce th
 
 `debt-shield-extension/convergence_study.py` checks the CI and the variance-reduction claim against actual repeated runs, not just the maths.
 
-**Setup.** Account 3's profile (the "in-between" case in `BASELINE.md` - not degenerate at 0 or 100, so the estimate has room to actually move). N from 1,000 to 400,000, 30 independent seeds per N. Three quantities per N:
+**Setup.** Account 3's profile (the "in-between" case in `BASELINE.md`, not degenerate at 0 or 100, so the estimate has room to move). N from 1,000 to 400,000, 30 independent seeds per N. Three quantities per N:
 
 - **empirical SE** - the standard deviation of the point estimate across the 30 seeds. The actual measured spread, not a formula.
 - **naive iid SE** - `sqrt(p_bar(1-p_bar)/N)`, what the plain independent-trials formula would predict if antithetic pairing weren't happening.
@@ -103,15 +103,15 @@ The engine runs on a fixed seed by default (identical inputs always reproduce th
 
 | N | mean prob | empirical SE | naive iid SE | analytic pair SE |
 |---|---|---|---|---|
-| 1,000 | 0.18380 | 0.00911 | 0.01225 | 0.01083 |
-| 5,000 | 0.17807 | 0.00425 | 0.00541 | 0.00480 |
-| 20,000 | 0.17847 | 0.00238 | 0.00271 | 0.00239 |
-| 50,000 | 0.17875 | 0.00174 | 0.00171 | 0.00152 |
-| 100,000 | 0.17911 | 0.00118 | 0.00121 | 0.00107 |
-| 200,000 | 0.17887 | 0.00062 | 0.00086 | 0.00076 |
-| 400,000 | 0.17868 | 0.00042 | 0.00061 | 0.00054 |
+| 1,000 | 0.18610 | 0.00905 | 0.01231 | 0.01088 |
+| 5,000 | 0.18036 | 0.00423 | 0.00544 | 0.00482 |
+| 20,000 | 0.18069 | 0.00234 | 0.00272 | 0.00240 |
+| 50,000 | 0.18088 | 0.00177 | 0.00172 | 0.00152 |
+| 100,000 | 0.18126 | 0.00118 | 0.00122 | 0.00107 |
+| 200,000 | 0.18103 | 0.00063 | 0.00086 | 0.00076 |
+| 400,000 | 0.18085 | 0.00043 | 0.00061 | 0.00054 |
 
-Fitted slope of `log(empirical SE)` against `log(N)`: **-0.500**, matching the O(1/√N) rate Monte Carlo theory predicts almost exactly.
+Fitted slope of `log(empirical SE)` against `log(N)`: **-0.495**, matching the O(1/√N) rate Monte Carlo theory predicts almost exactly. (Rerun after negative-balance interest was added - `mean_prob` sits about 0.002 higher than the pre-negative-balance-interest table did, consistent with shortfalls now compounding instead of sitting free; the SE columns and the fitted slope are essentially unchanged, since neither antithetic sampling nor the convergence rate depend on the specific probability being estimated.)
 
 **Interpretation.** `analytic pair SE` sits below `naive iid SE` at every N - the variance reduction from antithetic pairing is showing up empirically, not just asserted. `empirical SE` and `analytic pair SE` track each other closely, sitting slightly above or below one another at different N (e.g. `empirical` a touch above `analytic` at N=50,000/100,000, a touch below elsewhere) - expected noise from estimating a standard deviation off only 30 reps (relative uncertainty on a std-of-30 estimate is roughly ±13%), not a discrepancy worth chasing further. Raw numbers in `docs/convergence_study.csv` / `docs/convergence_study.md`; rerun with `python convergence_study.py` from `debt-shield-extension/`.
 
@@ -138,7 +138,7 @@ A plausible re-pick of the anchors moves Account 3's score by roughly 5-8 points
 | 5% | 0.608 | Yes | 0.608 | 42.4 |
 | 2.5% | 0.510 | Yes | 0.510 | 50.0 |
 
-At the production tolerance nothing changes - the finding isn't "this is broken," it's a genuine limitation worth being aware of: a stricter tail-tolerance choice would suppress some of Account 3's real, CSV-derived income volatility and make it look artificially safer, since the clamp caps the *input* variance the simulation sees, not just the output score. Not a bug (the clamp exists specifically to prevent implausible variance from breaking the model, per the "Bug fixes" section in README), but confirmation that the 10% tolerance is a real judgement call with real downstream consequences, not an inert default.
+At the production tolerance nothing changes. The finding isn't "this is broken," it's a genuine limitation: a stricter tail-tolerance choice would suppress some of Account 3's real, CSV-derived income volatility and make it look artificially safer, since the clamp caps the *input* variance the simulation sees, not just the output score. Not a bug (the clamp exists to prevent implausible variance from breaking the model, per the "Bug fixes" section in README), but confirmation that the 10% tolerance carries real downstream consequences, not an inert default.
 
 Raw numbers in `docs/sensitivity_analysis.csv` / `docs/sensitivity_analysis.md`; rerun with `python sensitivity_analysis.py` from `debt-shield-extension/`.
 

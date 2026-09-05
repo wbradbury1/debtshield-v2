@@ -1,5 +1,5 @@
 // ================================================================
-// DEBT SHIELD v2 — Content Script
+// DEBT SHIELD v2: Content Script
 // ================================================================
 
 (function () {
@@ -150,7 +150,7 @@
       if (v) candidates.push({ value: v, source, confidence });
     }
 
-    // Confidence 3: known site CSS — most reliable
+    // Confidence 3: known site CSS, most reliable
     const domain = window.location.hostname.replace(/^www\./, '');
     const siteKey = Object.keys(SITE_SELECTORS).find(k => domain === k || domain.endsWith('.' + k));
     if (siteKey) {
@@ -310,7 +310,7 @@
     const origFetch = win.fetch;
     win.fetch = function(...args) {
       if (state.modalVisible && !state._proceeding) {
-        // Queue this request — resolve it when modal closes
+        // Queue this request, resolve it when modal closes
         return new Promise((resolve, reject) => {
           const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
           if (isCheckoutUrl(url)) {
@@ -361,7 +361,7 @@
             state._modalAllowed = undefined;
           }
         }, 100);
-        // Safety timeout — don't hold forever
+        // Safety timeout: don't hold forever
         setTimeout(() => { clearInterval(check); resolve(true); }, 60000);
       });
     }
@@ -860,7 +860,7 @@
   }
 
   // ── WHACK-A-MOLE GAME ─────────────────────────────────────────
-  // Emojis pop up in a grid — click them before they vanish. Combo multiplier!
+  // Emojis pop up in a grid, click them before they vanish. Combo multiplier!
   function startMole() {
     document.querySelectorAll('.ds-game-screen').forEach(s => s.classList.remove('active'));
     document.getElementById('ds-game-mole').classList.add('active');
@@ -1265,10 +1265,10 @@
     if (clearWinner) {
       _showMainModal(best.value, getRisk(best.value, state.settings, state.profile));
     } else if (candidates.length > 0) {
-      // Multiple competing candidates or lower confidence — show picker so user confirms
+      // Multiple competing candidates or lower confidence: show picker so user confirms
       _showPricePicker(candidates);
     } else {
-      // No prices found — let user enter manually
+      // No prices found: let user enter manually
       _showPricePicker([]);
     }
   }
@@ -1319,7 +1319,7 @@
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') confirmBtn.click(); });
 
     document.getElementById('ds-price-skip').addEventListener('click', () => {
-      // No price — just show modal with null
+      // No price: just show modal with null
       _showMainModal(null, 'low');
     }, { once: true });
 
@@ -1416,7 +1416,7 @@
 
     const c = state.settings?.currency || '£';
     // Use the user's actual monthly_net (income - expenses) from their profile
-    // as the "budget" — falls back to settings.monthlyBudget if not yet synced
+    // as the "budget", falls back to settings.monthlyBudget if not yet synced
     const budget = state.profile?.monthly_net || state.settings?.monthlyBudget || 500;
     const spent = state.session?.monthlySpend || 0;
     const left = Math.max(0, budget - spent);
@@ -1555,7 +1555,7 @@
   new MutationObserver(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      state._shownForUrl = null; // new page state — allow interception again
+      state._shownForUrl = null; // new page state, allow interception again
       setTimeout(() => { scanButtons(); scanCardInputs(); loadState(); }, 500);
     }
   }).observe(document.documentElement, { subtree: true, childList: true });

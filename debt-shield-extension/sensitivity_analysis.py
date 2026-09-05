@@ -2,18 +2,15 @@
 Sensitivity analysis for the two scoring-engine assumptions that have no
 external anchor: the score-transform anchor points, and MAX_CV's underlying
 tail-tolerance. z=1.96, N, the 3-month default threshold, and
-NEGATIVE_BALANCE_RATE were deliberately excluded from this study - each
-traces to an external anchor (a mathematical definition, the convergence
-study itself, Basel II, or real surveyed bank rates respectively), so
-sweeping them would just re-derive an already-fixed external fact rather
-than test our own judgement. See the final-stretch plan for the full
-reasoning behind the cut.
+NEGATIVE_BALANCE_RATE were excluded: each traces to an external anchor (a
+mathematical definition, the convergence study itself, Basel II, or real
+surveyed bank rates respectively), so sweeping them would just re-derive an
+already-fixed fact rather than test our own judgement - see the
+final-stretch plan for the full reasoning.
 
-Both sweeps run on Account 3 (BASELINE.md's "in-between" case - not
-degenerate at 0 or 100 like Accounts 1 and 2, so there's room to actually
-see movement), on the final engine, at a fixed seed (42) throughout - so any
-movement in the results is attributable only to the swept parameter, never
-to a different Monte Carlo draw.
+Both sweeps use Account 3, at a fixed seed (42), so any movement in the
+results is attributable only to the swept parameter, never a different
+Monte Carlo draw.
 
 Run from debt-shield-extension/:
     python sensitivity_analysis.py
@@ -26,7 +23,9 @@ from pathlib import Path
 import scoring
 from scoring import shield_score
 
-# Account 3's profile - same one convergence_study.py uses.
+# Account 3 (BASELINE.md's "in-between" case) - not degenerate at 0 or 100
+# like Accounts 1 and 2, so there's actually room for a swept parameter to
+# move the score.
 ACCOUNT = dict(
     mu_I=670.89, mu_E=627.24, var_I=232069.5475384616, var_E=1830.378938461537,
     d=[0.0], p=[0.0], t=[math.inf], r=[0.0], B0=1161.18, rho_IE=-0.5800690718917769,
@@ -53,21 +52,20 @@ TOLERANCES = [
 
 
 def run_anchor_sweep():
-    orig = (scoring._ANCHOR_P1, scoring._ANCHOR_S1, scoring._ANCHOR_P2, scoring._ANCHOR_S2)
+    orig = (scoring.ANCHOR_P1, scoring.ANCHOR_S1, scoring.ANCHOR_P2, scoring.ANCHOR_S2)
     rows = []
     try:
         for label, p1, s1, p2, s2 in ANCHOR_SETS:
-            scoring._ANCHOR_P1, scoring._ANCHOR_S1 = p1, s1
-            scoring._ANCHOR_P2, scoring._ANCHOR_S2 = p2, s2
+            scoring.ANCHOR_P1, scoring.ANCHOR_S1 = p1, s1
+            scoring.ANCHOR_P2, scoring.ANCHOR_S2 = p2, s2
             result = shield_score(**ACCOUNT)
             rows.append((label, s1, s2, result.score, result.ci_low, result.ci_high))
             print(f"anchors={label:>8}  (1%->{s1:.0f}, 50%->{s2:.0f})  "
                   f"score={result.score:.1f}  ci=[{result.ci_low:.1f}, {result.ci_high:.1f}]")
     finally:
-        # Restore production anchors regardless of success/failure above -
-        # this module is imported (not re-run fresh) by anything that runs
-        # after it in the same process.
-        scoring._ANCHOR_P1, scoring._ANCHOR_S1, scoring._ANCHOR_P2, scoring._ANCHOR_S2 = orig
+        # Restore production anchors either way - this module gets imported,
+        # not re-run fresh, by anything that runs after it in the same process
+        scoring.ANCHOR_P1, scoring.ANCHOR_S1, scoring.ANCHOR_P2, scoring.ANCHOR_S2 = orig
     return rows
 
 
@@ -112,14 +110,12 @@ def write_outputs(anchor_rows, cv_rows):
             "Tests the two scoring-engine assumptions with no external anchor: the "
             "score-transform anchor points, and MAX_CV's underlying tail-tolerance. "
             "`z=1.96`, `N`, the 3-month default threshold, and `NEGATIVE_BALANCE_RATE` "
-            "were deliberately excluded - each traces to an external anchor (a "
-            "mathematical definition, the convergence study itself, Basel II, or real "
-            "surveyed bank rates), so sweeping them would just re-derive an already-fixed "
-            "external fact rather than test our own judgement. Both sweeps run on "
-            "Account 3 (BASELINE.md's \"in-between\" case - not degenerate at 0 or 100, "
-            "so there's room to actually see movement) at a fixed seed (42) throughout, "
-            "so any movement below is attributable only to the swept parameter, never a "
-            "different Monte Carlo draw.\n\n"
+            "were excluded, since each traces to an external anchor (a mathematical "
+            "definition, the convergence study itself, Basel II, or real surveyed bank "
+            "rates) - sweeping them would just re-derive an already-fixed fact rather "
+            "than test our own judgement. Both sweeps use Account 3 at a fixed seed "
+            "(42), so any movement below is attributable only to the swept parameter, "
+            "never a different Monte Carlo draw.\n\n"
         )
         f.write("## Anchor points\n\n")
         f.write("| anchors | 1% PD -> | 50% PD -> | Shield Score | 95% CI |\n")
