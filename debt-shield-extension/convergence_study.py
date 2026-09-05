@@ -10,7 +10,7 @@ using several independent seeds per N. Checks two things:
 2. Does antithetic sampling actually reduce variance, not just in theory?
    Empirical SE sitting below the naive iid formula sqrt(p(1-p)/N) is that
    shown directly, and empirical SE sitting close to the antithetic-pair SE
-   (the same formula _score_margin_antithetic uses) validates that formula
+   (the same formula _prob_margin_antithetic uses) validates that formula
    against real repeated-run behaviour rather than just its own derivation.
 
 Run from debt-shield-extension/:
@@ -38,9 +38,9 @@ REPS = 30  # independent seeds per N, used to measure the estimate's real spread
 
 
 def _analytic_pair_se(defaulted: np.ndarray, N: int) -> float:
-    # Same formula as _score_margin_antithetic in scoring.py, minus the
-    # z * 100 scaling - kept in raw probability units (0-1) here so it's
-    # directly comparable to empirical_se below.
+    # Same formula as _prob_margin_antithetic in scoring.py, minus the z
+    # scaling - kept in raw probability units (0-1) here so it's directly
+    # comparable to empirical_se below.
     half = N // 2
     pair_avg = (defaulted[:half].astype(float) + defaulted[half:2 * half].astype(float)) / 2.0
     return pair_avg.std(ddof=1) / math.sqrt(half)
@@ -94,7 +94,7 @@ def write_outputs(rows, slope):
             "the actual measured spread, not a formula. `naive_iid_se` is what "
             "sqrt(p(1-p)/N) predicts if all N paths were independent (they're "
             "not, because of antithetic sampling). `analytic_pair_se` is the "
-            "pair-based formula `_score_margin_antithetic` uses (from a single "
+            "pair-based formula `_prob_margin_antithetic` uses (from a single "
             "run per N), included to check it against the real repeated-run "
             "spread rather than just trusting its own derivation.\n\n"
         )

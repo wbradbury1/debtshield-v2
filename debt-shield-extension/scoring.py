@@ -42,7 +42,7 @@ def _simulate_defaults(
     Runs the Monte Carlo simulation and returns the raw per-path default
     indicator, shape (N,), dtype bool. Split out from prob_default_12m so
     the confidence interval can use the correct antithetic-pair variance
-    (see _score_margin_antithetic) instead of wrongly treating all N paths
+    (see _prob_margin_antithetic) instead of wrongly treating all N paths
     as independent trials.
 
     Default = 3 consecutive negative-cash-balance months, not just one bad
@@ -99,7 +99,7 @@ def _simulate_defaults(
     # worse with a bad shock, never better, which is what makes this work.
     #
     # Paths [0, half) are the draws, [half, 2*half) are their mirrors in
-    # the same order (path i <-> path half+i). _score_margin_antithetic
+    # the same order (path i <-> path half+i). _prob_margin_antithetic
     # needs that exact layout to pair them back up. Odd N just tacks on
     # one extra unmirrored path at the end.
     #
@@ -208,9 +208,55 @@ class ScoreResult:
     ci_high: float
 
 
-def _score_margin_antithetic(defaulted: np.ndarray, N: int, z: float = 1.96) -> float:
+# Log-odds (scorecard-style) mapping from probability of default to a 0-100
+# score - same shape real credit scorecards (FICO etc.) use, chosen over the
+# old linear score = (1-p)*100 because linear understated risk in the middle
+# of the range (30% PD read as a "decent" 70/100). Anchors are a modelling
+# choice, not a fit - no real default-outcome data exists to calibrate
+# against, same situation as NEGATIVE_BALANCE_RATE above. Full derivation,
+# why ln((1-p)/p) specifically, and alternatives considered are in
+# METHODS.md.
+_ANCHOR_P1, _ANCHOR_S1 = 0.01, 90.0   # 1% PD -> 90
+_ANCHOR_P2, _ANCHOR_S2 = 0.50, 10.0   # 50% PD (coin-flip) -> 10
+
+
+def _score_transform(p: float) -> float:
     """
-    95% margin on the score - correct for antithetic pairing.
+    Maps a probability of default to a 0-100 score via
+    score = offset + factor * ln((1-p)/p) - (1-p)/p is the odds of NOT
+    defaulting, so score falls as p rises without needing a negative factor.
+
+    offset/factor are solved from the two anchor points above, not
+    hardcoded, so changing an anchor constant is the only edit needed to
+    re-calibrate (relevant for the sensitivity analysis in the final-stretch
+    plan, which treats these anchors as parameters to sweep).
+
+    p=0 and p=1 are handled explicitly since ln((1-p)/p) is undefined
+    (+/-infinity) at the boundaries - clamps to 100 / 0 respectively, same
+    clamping spirit as the old transform.
+    """
+    if p <= 0.0:
+        return 100.0
+    if p >= 1.0:
+        return 0.0
+
+    log_odds_1 = math.log((1 - _ANCHOR_P1) / _ANCHOR_P1)
+    log_odds_2 = math.log((1 - _ANCHOR_P2) / _ANCHOR_P2)  # = 0 at p=0.5, kept explicit rather than hardcoded
+
+    factor = (_ANCHOR_S1 - _ANCHOR_S2) / (log_odds_1 - log_odds_2)
+    offset = _ANCHOR_S2 - factor * log_odds_2
+
+    raw = offset + factor * math.log((1 - p) / p)
+    return max(0.0, min(100.0, raw))
+
+
+def _prob_margin_antithetic(defaulted: np.ndarray, N: int, z: float = 1.96) -> float:
+    """
+    95% margin on the *probability* estimate (0-1 units, not score points) -
+    correct for antithetic pairing. Renamed from _score_margin_antithetic:
+    now that the score transform is non-linear, the margin has to be applied
+    in probability space and pushed through the transform at each endpoint,
+    not linearly rescaled by x100 - see shield_score.
 
     Path i and half+i are mirrors, so they're correlated, not independent
     trials - can't just plug all N into sqrt(p(1-p)/N). Pairs ARE
@@ -224,7 +270,7 @@ def _score_margin_antithetic(defaulted: np.ndarray, N: int, z: float = 1.96) -> 
     half = N // 2
     pair_avg = (defaulted[:half].astype(float) + defaulted[half:2 * half].astype(float)) / 2.0
     se = pair_avg.std(ddof=1) / math.sqrt(half)
-    return z * se * 100.0
+    return z * se
 
 
 def shield_score(
@@ -242,22 +288,30 @@ def shield_score(
     seed: int = 42,
 ) -> ScoreResult:
     """
-    Returns the Shield Score: (1 - prob_default_12m) * 100, plus a 95%
-    confidence interval around it. The interval reflects Monte Carlo
-    sampling noise only - "if we reran this with a different seed, how
-    much could the score plausibly move" - not real-world uncertainty
-    about the household itself.
+    Returns the Shield Score: a log-odds transform of prob_default_12m onto
+    0-100 (see _score_transform), plus a 95% confidence interval around it.
+    The interval reflects Monte Carlo sampling noise only - "if we reran
+    this with a different seed, how much could the score plausibly move" -
+    not real-world uncertainty about the household itself.
+
+    ci_low/ci_high are NOT symmetric around score - expected under any
+    non-linear transform. The margin is computed in probability space first,
+    then each endpoint is pushed through the same transform as the point
+    estimate, rather than linearly rescaling a single +/- margin (which only
+    ever worked because the old transform was linear).
     """
     defaulted = _simulate_defaults(
         mu_I=mu_I, mu_E=mu_E, var_I=var_I, var_E=var_E,
         d=d, p=p, t=t, r=r, B0=B0, N=N, rho_IE=rho_IE, seed=seed,
     )
-    prob      = float(defaulted.mean())
-    raw_score = (1.0 - prob) * 100
-    margin    = _score_margin_antithetic(defaulted, N)
+    prob        = float(defaulted.mean())
+    prob_margin = _prob_margin_antithetic(defaulted, N)
+
+    prob_low  = max(0.0, prob - prob_margin)   # lower PD  -> higher score
+    prob_high = min(1.0, prob + prob_margin)   # higher PD -> lower score
 
     return ScoreResult(
-        score   = round(max(0.0, min(100.0, raw_score)), 1),
-        ci_low  = round(max(0.0, min(100.0, raw_score - margin)), 1),
-        ci_high = round(max(0.0, min(100.0, raw_score + margin)), 1),
+        score   = round(_score_transform(prob), 1),
+        ci_low  = round(_score_transform(prob_high), 1),
+        ci_high = round(_score_transform(prob_low), 1),
     )

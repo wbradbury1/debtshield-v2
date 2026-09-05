@@ -138,8 +138,10 @@ def get_score(name: str, seed: int = 42):
     )
 
     # ci_low/ci_high = 95% confidence interval on the score, from Monte
-    # Carlo sampling noise (see _score_margin in scoring.py). Frontend
-    # doesn't read these yet - just exposing them on the API for now.
+    # Carlo sampling noise (see _prob_margin_antithetic and _score_transform
+    # in scoring.py) - not symmetric around shield_score, expected under the
+    # log-odds transform. Frontend doesn't read these yet - just exposing
+    # them on the API for now.
     return {
         "name": user.name,
         "shield_score": result.score,
