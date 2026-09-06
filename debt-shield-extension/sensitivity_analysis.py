@@ -14,8 +14,7 @@ Monte Carlo draw.
 
 Run from debt-shield-extension/:
     python sensitivity_analysis.py
-Writes docs/sensitivity_analysis.csv and docs/sensitivity_analysis.md at the
-repo root.
+Writes docs/sensitivity_analysis.csv at the repo root.
 """
 import math
 from pathlib import Path
@@ -103,38 +102,7 @@ def write_outputs(anchor_rows, cv_rows):
         for tolerance, max_cv, clamped, used_cv, score, ci_low, ci_high in cv_rows:
             f.write(f"{tolerance},{max_cv:.3f},{clamped},{used_cv:.3f},{score},{ci_low},{ci_high}\n")
 
-    md_path = docs_dir / "sensitivity_analysis.md"
-    with open(md_path, "w") as f:
-        f.write("# Sensitivity analysis\n\n")
-        f.write(
-            "Tests the two scoring-engine assumptions with no external anchor: the "
-            "score-transform anchor points, and MAX_CV's underlying tail-tolerance. "
-            "`z=1.96`, `N`, the 3-month default threshold, and `NEGATIVE_BALANCE_RATE` "
-            "were excluded, since each traces to an external anchor (a mathematical "
-            "definition, the convergence study itself, Basel II, or real surveyed bank "
-            "rates) - sweeping them would just re-derive an already-fixed fact rather "
-            "than test our own judgement. Both sweeps use Account 3 at a fixed seed "
-            "(42), so any movement below is attributable only to the swept parameter, "
-            "never a different Monte Carlo draw.\n\n"
-        )
-        f.write("## Anchor points\n\n")
-        f.write("| anchors | 1% PD -> | 50% PD -> | Shield Score | 95% CI |\n")
-        f.write("|---|---|---|---|---|\n")
-        for label, s1, s2, score, ci_low, ci_high in anchor_rows:
-            f.write(f"| {label} | {s1:.0f} | {s2:.0f} | {score} | [{ci_low}, {ci_high}] |\n")
-        f.write(
-            "\n## MAX_CV tail tolerance\n\n"
-            "Account 3's actual income CV is 0.718 (`BASELINE.md`) - below today's 0.78 "
-            "cap (never clamped in production), but above the stricter caps implied by "
-            "lower tail-tolerance choices.\n\n"
-        )
-        f.write("| tail tolerance | implied MAX_CV | clamp fires? | income CV used | Shield Score | 95% CI |\n")
-        f.write("|---|---|---|---|---|---|\n")
-        for tolerance, max_cv, clamped, used_cv, score, ci_low, ci_high in cv_rows:
-            f.write(f"| {tolerance:.1%} | {max_cv:.3f} | {clamped} | {used_cv:.3f} | {score} | [{ci_low}, {ci_high}] |\n")
-
     print(f"\nwrote {csv_path}")
-    print(f"wrote {md_path}")
 
 
 if __name__ == "__main__":

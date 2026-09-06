@@ -14,8 +14,9 @@ import numpy as np
 # figures, not effective ones.
 NEGATIVE_BALANCE_RATE = 1.40 ** (1 / 12) - 1
 
-# 200,000 paths - convergence_study.md suggests past this point, added
-# computation buys diminishing precision (SE only shrinks as 1/sqrt(N)).
+# 200,000 paths - the convergence study (convergence_study.py) suggests past
+# this point, added computation buys diminishing precision (SE only shrinks
+# as 1/sqrt(N)).
 N_PATHS = 200_000
 
 
@@ -24,10 +25,10 @@ def _simulate_defaults(
     mu_E: float,
     var_I: float,
     var_E: float,
-    d: list[float],
-    p: list[float],
-    t: list[float],
-    r: list[float],
+    d: list[float],   # balance
+    p: list[float],   # payment
+    t: list[float],   # term (months)
+    r: list[float],   # rate (monthly)
     B0: float = 0.0,
     N: int = N_PATHS,
     rho_IE: float = 0.0,
@@ -134,9 +135,9 @@ def _simulate_defaults(
 
         # Shortfall compounds at NEGATIVE_BALANCE_RATE next month - same
         # mechanic as the declared-debt interest above, just applied to
-        # the implicit debt of being cash-negative.
-        in_shortfall = active & (B < 0)
-        B[in_shortfall] *= (1.0 + NEGATIVE_BALANCE_RATE)
+        # the implicit debt of being cash-negative. Same mask as the streak
+        # check above: neither active nor B has moved since.
+        B[short_this_month] *= (1.0 + NEGATIVE_BALANCE_RATE)
 
         payments_made = scheduled + residual
         bal -= payments_made
@@ -150,10 +151,10 @@ def prob_default_12m(
     mu_E: float,
     var_I: float,
     var_E: float,
-    d: list[float],
-    p: list[float],
-    t: list[float],
-    r: list[float],
+    d: list[float],   # balance
+    p: list[float],   # payment
+    t: list[float],   # term (months)
+    r: list[float],   # rate (monthly)
     B0: float = 0.0,
     N: int = N_PATHS,
     rho_IE: float = 0.0,
@@ -175,7 +176,7 @@ class ScoreResult:
 
 
 # Log-odds (scorecard-style) mapping from PD to a 0-100 score, same shape
-# real scorecards (FICO etc.) use. Replaces the old linear score =
+# real scorecards (Experian etc.) use. Replaces the old linear score =
 # (1-p)*100, which understated risk mid-range (30% PD read as a "decent"
 # 70/100). Anchors are a modelling choice, not a fit - no real
 # default-outcome data to calibrate against. See FEATURES.md for the full
@@ -242,10 +243,10 @@ def shield_score(
     mu_E: float,
     var_I: float,
     var_E: float,
-    d: list[float],
-    p: list[float],
-    t: list[float],
-    r: list[float],
+    d: list[float],   # balance
+    p: list[float],   # payment
+    t: list[float],   # term (months)
+    r: list[float],   # rate (monthly)
     B0: float = 0.0,
     N: int = N_PATHS,
     rho_IE: float = 0.0,

@@ -1,4 +1,4 @@
-N,mean_prob,empirical_se,naive_iid_se,analytic_pair_se
+N,mean_prob,empirical_se,iid_formula_se,antithetic_formula_se
 1000,0.186100,0.009049,0.012307,0.010875
 5000,0.180360,0.004229,0.005437,0.004821
 20000,0.180692,0.002336,0.002721,0.002400

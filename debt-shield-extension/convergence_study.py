@@ -15,8 +15,7 @@ using several independent seeds per N. Checks two things:
 
 Run from debt-shield-extension/:
     python convergence_study.py
-Writes docs/convergence_study.csv and docs/convergence_study.md at the repo
-root.
+Writes docs/convergence_study.csv at the repo root.
 """
 import math
 from pathlib import Path
@@ -62,7 +61,7 @@ def run():
 
         rows.append((N, p_bar, empirical_se, naive_se, analytic_se))
         print(f"N={N:>7,}  mean_prob={p_bar:.5f}  empirical_se={empirical_se:.5f}  "
-              f"naive_iid_se={naive_se:.5f}  analytic_pair_se={analytic_se:.5f}")
+              f"iid_formula_se={naive_se:.5f}  antithetic_formula_se={analytic_se:.5f}")
 
     Ns = np.array([row[0] for row in rows], dtype=float)
     empirical_ses = np.array([row[2] for row in rows], dtype=float)
@@ -71,45 +70,21 @@ def run():
     slope, _ = np.polyfit(np.log(Ns), np.log(empirical_ses), 1)
     print(f"\nfitted slope: {slope:.3f} (theory: -0.5)")
 
-    write_outputs(rows, slope)
+    write_outputs(rows)
 
 
-def write_outputs(rows, slope):
+def write_outputs(rows):
     repo_root = Path(__file__).resolve().parent.parent
     docs_dir = repo_root / "docs"
     docs_dir.mkdir(exist_ok=True)
 
     csv_path = docs_dir / "convergence_study.csv"
     with open(csv_path, "w") as f:
-        f.write("N,mean_prob,empirical_se,naive_iid_se,analytic_pair_se\n")
+        f.write("N,mean_prob,empirical_se,iid_formula_se,antithetic_formula_se\n")
         for N, p_bar, emp_se, naive_se, an_se in rows:
             f.write(f"{N},{p_bar:.6f},{emp_se:.6f},{naive_se:.6f},{an_se:.6f}\n")
 
-    md_path = docs_dir / "convergence_study.md"
-    with open(md_path, "w") as f:
-        f.write("# Convergence study\n\n")
-        f.write(
-            f"Account 3 profile, {REPS} independent seeds per N. `empirical_se` "
-            "is the standard deviation of the point estimate across those seeds - "
-            "the measured spread, not a formula. `naive_iid_se` is what "
-            "sqrt(p(1-p)/N) predicts if all N paths were independent (they're "
-            "not, because of antithetic sampling). `analytic_pair_se` is the "
-            "pair-based formula `_prob_margin_antithetic` uses (from a single "
-            "run per N), included to check it against the real repeated-run "
-            "spread rather than just trusting its own derivation.\n\n"
-        )
-        f.write("| N | mean prob | empirical SE | naive iid SE | analytic pair SE |\n")
-        f.write("|---|---|---|---|---|\n")
-        for N, p_bar, emp_se, naive_se, an_se in rows:
-            f.write(f"| {N:,} | {p_bar:.5f} | {emp_se:.5f} | {naive_se:.5f} | {an_se:.5f} |\n")
-        f.write(
-            f"\nFitted slope of log(empirical_se) vs log(N): **{slope:.3f}** "
-            "(Monte Carlo theory predicts -0.5, i.e. error shrinks as "
-            "1/sqrt(N)).\n"
-        )
-
     print(f"\nwrote {csv_path}")
-    print(f"wrote {md_path}")
 
 
 if __name__ == "__main__":

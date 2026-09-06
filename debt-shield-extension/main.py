@@ -9,10 +9,10 @@ from scoring import shield_score
 logger = logging.getLogger(__name__)
 
 # Cap CV so a monthly draw has ~10% chance of going negative (can't happen
-# for real income/expenses, but a normal draw has two tails). P(X<0) =
+# for real income/expenses, but a normal draw has two tails so 10% is our upper threshold). P(X<0) =
 # Phi(-1/CV), so CV <= 1/Phi^-1(1-p): p=0.10 -> Phi^-1(0.90) = 1.2816 ->
 # CV <= 0.78 (old value was a flat 1.0 guess, ~16% chance). To retune:
-# pick a new p, look up Phi^-1(1-p), don't just guess a CV.
+# derive from a new p. Alternate distribution may be more appropriate.
 MAX_CV = 0.78
 
 app = FastAPI()
@@ -65,19 +65,23 @@ def get_score(name: str, seed: int = 42):
     adjusted_expenses  = max(0.0, user.average_expenses - total_monthly_debt)
 
     # Use CSV-derived variance where we have it; otherwise fall back to a
-    # ±20% heuristic (unfitted guess - only hits test users/direct API calls,
-    # normal onboarding always sends real variance)
+    # CV of 0.38, the median household income CV from JPMorgan Chase
+    # Institute's "Weathering Volatility 2.0" (2019) - only hits test
+    # users/direct API calls, normal onboarding always sends real variance
     if user.var_income is not None:
         var_I = user.var_income
     else:
-        var_I = (user.average_income * 0.20) ** 2
+        var_I = (user.average_income * 0.38) ** 2
 
     if user.var_expenses is not None:
         # Removing a fixed quantity (debt payments) from a random variable
         # doesn't change its variance, so pass the CSV value through as-is.
         var_E = user.var_expenses
     else:
-        var_E = (adjusted_expenses * 0.20) ** 2
+        # Same source as the income fallback above, but spending volatility
+        # runs ~15% lower than income volatility per that study's own
+        # findings: 0.38 * 0.85 ≈ 0.32, not the same 0.38 used for income.
+        var_E = (adjusted_expenses * 0.32) ** 2
 
     # MAX_CV is the module-level constant above. Expense cap uses
     # adjusted_expenses, not raw average_expenses - that's the mean the
