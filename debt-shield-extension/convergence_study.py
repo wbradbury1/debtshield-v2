@@ -15,7 +15,7 @@ using several independent seeds per N. Checks two things:
 
 Run from debt-shield-extension/:
     python convergence_study.py
-Writes docs/convergence_study.csv at the repo root.
+Writes data/convergence_study.csv at the repo root.
 """
 import math
 from pathlib import Path
@@ -75,10 +75,10 @@ def run():
 
 def write_outputs(rows):
     repo_root = Path(__file__).resolve().parent.parent
-    docs_dir = repo_root / "docs"
-    docs_dir.mkdir(exist_ok=True)
+    data_dir = repo_root / "data"
+    data_dir.mkdir(exist_ok=True)
 
-    csv_path = docs_dir / "convergence_study.csv"
+    csv_path = data_dir / "convergence_study.csv"
     with open(csv_path, "w") as f:
         f.write("N,mean_prob,empirical_se,iid_formula_se,antithetic_formula_se\n")
         for N, p_bar, emp_se, naive_se, an_se in rows:

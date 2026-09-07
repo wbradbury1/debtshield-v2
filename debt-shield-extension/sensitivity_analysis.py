@@ -14,7 +14,7 @@ Monte Carlo draw.
 
 Run from debt-shield-extension/:
     python sensitivity_analysis.py
-Writes docs/sensitivity_analysis.csv at the repo root.
+Writes data/sensitivity_analysis.csv at the repo root.
 """
 import math
 from pathlib import Path
@@ -88,10 +88,10 @@ def run_max_cv_sweep():
 
 def write_outputs(anchor_rows, cv_rows):
     repo_root = Path(__file__).resolve().parent.parent
-    docs_dir = repo_root / "docs"
-    docs_dir.mkdir(exist_ok=True)
+    data_dir = repo_root / "data"
+    data_dir.mkdir(exist_ok=True)
 
-    csv_path = docs_dir / "sensitivity_analysis.csv"
+    csv_path = data_dir / "sensitivity_analysis.csv"
     with open(csv_path, "w") as f:
         f.write("# anchor point sweep (Account 3)\n")
         f.write("label,score_at_1pct_pd,score_at_50pct_pd,shield_score,ci_low,ci_high\n")
