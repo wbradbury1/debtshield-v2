@@ -1327,19 +1327,9 @@
   }
 
   // ── IMPACT ANALYSIS ──────────────────────────────────────────
-  function computeImpact(amount, profile) {
-    if (!profile || !amount) return null;
+  function computeGoalsImpact(amount, profile) {
     const mn = Math.max(profile.monthly_net || 0, 50);
-    const score = profile.score || 0;
-
-    // Approximate score delta: proportional to purchase vs monthly net
-    const risk_ratio = amount / mn;
-    const raw_delta  = -(risk_ratio * 4); // 1 month's surplus ≈ −4 pts
-    const score_delta = Math.max(-30, Math.min(-0.1, raw_delta));
-    const projected   = Math.max(0, Math.min(100, score + score_delta));
-
-    // Goals timeline impact
-    const goals_impact = (profile.goals || [])
+    return (profile.goals || [])
       .sort((a, b) => (a.priority || 99) - (b.priority || 99))
       .slice(0, 3)
       .map(g => {
@@ -1348,19 +1338,9 @@
         const delay_months  = mn > 0 ? Math.max(0, Math.ceil(amount / mn))    : null;
         return { name: g.name, base_months, delay_months };
       });
-
-    return { score, score_delta, projected_score: projected, goals_impact };
   }
 
-  function renderImpactSection(amount, profile) {
-    const section = document.getElementById('ds-impact-section');
-    if (!section) return;
-
-    const impact = computeImpact(amount, profile);
-    if (!impact) { section.style.display = 'none'; return; }
-
-    section.style.display = 'block';
-
+  function _paintImpact(impact) {
     const cur  = document.getElementById('ds-si-current');
     const proj = document.getElementById('ds-si-projected');
     const delt = document.getElementById('ds-si-delta');
@@ -1368,7 +1348,6 @@
     if (cur)  cur.textContent = impact.score.toFixed(1);
     if (proj) {
       proj.textContent = impact.projected_score.toFixed(1);
-      // Color the projected score based on severity
       const drop = Math.abs(impact.score_delta);
       proj.style.color = drop >= 10 ? '#e03131' : drop >= 5 ? '#e67700' : '#495057';
     }
@@ -1400,6 +1379,57 @@
           </div>`;
         }).join('');
       }
+    }
+  }
+
+  // No fallback formula. The old client-side linear approximation
+  // (score_delta = -(purchase / monthly_net) * 4) was checked against
+  // real reruns and found off by up to 20+ points - see FEATURES.md's
+  // Bug fixes section. Showing that number again on failure, even
+  // labelled "(estimated)", would just reintroduce the bug behind a
+  // try/catch. If the backend can't be reached, say so instead.
+  function _paintUnavailable() {
+    const proj = document.getElementById('ds-si-projected');
+    const delt = document.getElementById('ds-si-delta');
+    if (proj) { proj.textContent = '—'; proj.style.color = '#adb5bd'; }
+    if (delt) { delt.textContent = "can't reach backend"; delt.style.color = '#adb5bd'; }
+
+    const goalsList = document.getElementById('ds-goals-list');
+    if (goalsList) {
+      goalsList.innerHTML = '<div class="ds-goal-row ds-goal-empty">Start the backend server to see purchase impact.</div>';
+    }
+  }
+
+  // Async: fires a real backend rerun (GET_PROJECTED_SCORE -> main.py's
+  // hypothetical_purchase param -> a genuine 200k-path Monte Carlo rerun,
+  // ~350ms). Shows a loading state immediately, then either the real
+  // score or an explicit unavailable state on failure.
+  async function renderImpactSection(amount, profile) {
+    const section = document.getElementById('ds-impact-section');
+    if (!section) return;
+
+    if (!profile || !amount) { section.style.display = 'none'; return; }
+
+    section.style.display = 'block';
+
+    const cur  = document.getElementById('ds-si-current');
+    const proj = document.getElementById('ds-si-projected');
+    const delt = document.getElementById('ds-si-delta');
+    if (cur)  cur.textContent = (profile.score || 0).toFixed(1);
+    if (proj) { proj.textContent = '…'; proj.style.color = '#adb5bd'; }
+    if (delt) { delt.textContent = 'calculating…'; delt.style.color = '#adb5bd'; }
+
+    const res = await safeSend({ type: 'GET_PROJECTED_SCORE', amount });
+
+    if (res && res.ok && typeof res.score === 'number') {
+      _paintImpact({
+        score: profile.score || 0,
+        score_delta: res.score - (profile.score || 0),
+        projected_score: res.score,
+        goals_impact: computeGoalsImpact(amount, profile),
+      });
+    } else {
+      _paintUnavailable();
     }
   }
 
@@ -1435,7 +1465,9 @@
     leftEl.className  = 'ds-ctx-val' + (left / budget < 0.2 ? ' ds-danger' : left / budget < 0.4 ? ' ds-warn' : '');
     afterEl.className = 'ds-ctx-val' + (afterThis <= 0 ? ' ds-danger' : afterThis < budget * 0.1 ? ' ds-warn' : '');
 
-    // Render shield impact section
+    // Render shield impact section (async, fire-and-forget: shows a
+    // loading state immediately, backend rerun paints over it when it
+    // resolves - _showMainModal itself stays synchronous)
     renderImpactSection(amount, state.profile);
 
     document.querySelectorAll('.ds-tab').forEach((t,i) => t.classList.toggle('active', i===0));

@@ -40,7 +40,7 @@ def get_user_data(name: str):
 
 
 @app.get("/score/{name}")
-def get_score(name: str, seed: int = 42):
+def get_score(name: str, seed: int = 42, hypothetical_purchase: float = 0.0):
     user = get_user(name)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -131,6 +131,12 @@ def get_score(name: str, seed: int = 42):
         B0     = user.current_savings,
         rho_IE = rho_IE,
         seed   = seed,
+        # Checkout "what if I buy this" impact: a genuine rerun, not the
+        # old client-side linear-approximation formula. Not a debt - a
+        # single known-size purchase, so it's deducted straight from
+        # month 1's cash flow (see one_off_expense in scoring.py) rather
+        # than routed through d/p/t/r, which model recurring debt.
+        one_off_expense = hypothetical_purchase,
     )
 
     # ci_low/ci_high: 95% CI on the score, not symmetric under the

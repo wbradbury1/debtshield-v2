@@ -168,6 +168,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break;
       }
 
+      // GET_PROJECTED_SCORE: real backend rerun of the sim with a synthetic
+      // one-off purchase folded in as a 1-month debt (see main.py), instead
+      // of the old client-side linear-approximation formula in content.js.
+      case 'GET_PROJECTED_SCORE': {
+        const gpsSettingsData = await chrome.storage.local.get(STORAGE.SETTINGS);
+        const gpsSettings = gpsSettingsData[STORAGE.SETTINGS] || DEFAULTS;
+        const gpsBase = (gpsSettings.apiBase || DEFAULTS.apiBase).replace(/\/$/, '');
+        const gpsName = gpsSettings.userName;
+        if (!gpsName) { sendResponse({ ok: false, reason: 'no_user' }); break; }
+        try {
+          const url = `${gpsBase}/score/${encodeURIComponent(gpsName)}?hypothetical_purchase=${encodeURIComponent(msg.amount || 0)}`;
+          const res = await fetch(url);
+          if (!res.ok) { sendResponse({ ok: false, reason: 'api_error' }); break; }
+          const data = await res.json();
+          sendResponse({
+            ok: true,
+            score:    data.shield_score,
+            ci_low:   data.shield_score_ci_low,
+            ci_high:  data.shield_score_ci_high,
+          });
+        } catch (e) {
+          sendResponse({ ok: false, reason: 'fetch_error', error: e.message });
+        }
+        break;
+      }
+
       case 'UPDATE_SETTINGS': {
         const current = (await chrome.storage.local.get(STORAGE.SETTINGS))[STORAGE.SETTINGS] || DEFAULTS;
         await chrome.storage.local.set({ [STORAGE.SETTINGS]: { ...current, ...msg.settings } });

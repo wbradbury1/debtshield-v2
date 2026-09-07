@@ -33,6 +33,7 @@ def _simulate_defaults(
     N: int = N_PATHS,
     rho_IE: float = 0.0,
     seed: int = 42,
+    one_off_expense: float = 0.0,
 ) -> np.ndarray:
     """
     Runs the sim, returns the per-path default flag (shape (N,), bool).
@@ -42,6 +43,12 @@ def _simulate_defaults(
 
     Default = 3 consecutive negative-balance months, not one bad month
     (matches the README).
+
+    one_off_expense: a single known-size purchase (e.g. the checkout
+    "what would this do to my score" feature), deducted from month 1's
+    cash flow only. Not a debt - no term, no interest, no amortisation
+    schedule - so it's subtracted directly rather than routed through
+    d/p/t/r, which model recurring scheduled debt.
 
     Everything's vectorised except the 12-month loop - no Python loop over
     paths or debts.
@@ -96,6 +103,8 @@ def _simulate_defaults(
                                  + math.sqrt(max(0.0, 1.0 - rho_IE**2)) * Z[..., 1])
 
     net_cash_flow = income - expenses
+    if one_off_expense:
+        net_cash_flow[:, 0] -= one_off_expense   # month 1 only, every path equally (not random)
 
     B   = np.full(N, B0, dtype=float)
     bal = np.tile(d, (N, 1))
@@ -159,11 +168,13 @@ def prob_default_12m(
     N: int = N_PATHS,
     rho_IE: float = 0.0,
     seed: int = 42,
+    one_off_expense: float = 0.0,
 ) -> float:
     """Point estimate only - thin wrapper around _simulate_defaults, see that for the actual sim."""
     defaulted = _simulate_defaults(
         mu_I=mu_I, mu_E=mu_E, var_I=var_I, var_E=var_E,
         d=d, p=p, t=t, r=r, B0=B0, N=N, rho_IE=rho_IE, seed=seed,
+        one_off_expense=one_off_expense,
     )
     return float(defaulted.mean())
 
@@ -251,6 +262,7 @@ def shield_score(
     N: int = N_PATHS,
     rho_IE: float = 0.0,
     seed: int = 42,
+    one_off_expense: float = 0.0,
 ) -> ScoreResult:
     """
     Log-odds transform of prob_default_12m onto 0-100 (_score_transform),
@@ -262,10 +274,15 @@ def shield_score(
     Margin is computed in probability space, then each endpoint goes
     through the same transform as the point estimate - can't just rescale
     a single +/- margin like the old linear version did.
+
+    one_off_expense: see _simulate_defaults - a single checkout-time
+    purchase, not a recurring debt. Defaults to 0 (no effect) for every
+    caller except the checkout impact endpoint.
     """
     defaulted = _simulate_defaults(
         mu_I=mu_I, mu_E=mu_E, var_I=var_I, var_E=var_E,
         d=d, p=p, t=t, r=r, B0=B0, N=N, rho_IE=rho_IE, seed=seed,
+        one_off_expense=one_off_expense,
     )
     prob        = float(defaulted.mean())
     prob_margin = _prob_margin_antithetic(defaulted, N)
