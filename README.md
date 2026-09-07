@@ -1,6 +1,6 @@
 # 🛡️ DebtShield V2
 
-![Checkout intervention modal showing current score, projected score, and delta](data/checkout.png)
+<img src="data/checkout.png" alt="Checkout intervention modal showing current score, projected score, and delta" width="480">
 
 My team ([Shubh](https://github.com/ShubhdeepK), [Jamie](https://github.com/JamieGuo7) and [Daiki](https://github.com/daiki078)) and I built DebtShield for the 2026 Warwick Finance Societies Fintech Hackathon, a great time from start to finish despite the intensity! At its core it's a Monte Carlo credit-risk scoring engine, targeted at the Financial Inclusion category, which we interpreted as ordinary struggling people. We won not only the 'Best Financial Inclusion Hack' prize, but also the 'Best Overall Hack', bringing a huge £1500 for me and my team to split (£500 for the financial inclusion prize and £1000 for the overall prize).
 
@@ -8,7 +8,7 @@ We noted that impulsive spending is getting more and more common due to the fric
 
 We initially assign a score to a user's bank statement based on spending and income history. The score is derived via the likelihood of default determined via the Monte Carlo simulator. This alone gives the user a good idea of how their finances are looking. At checkout our extension intervenes, making the user aware of the impact of this purchase by simulating a new Shield Score with this purchase taken into account and highlighting the difference in the score.
 
-![Dashboard showing the standing Shield Score, risk band, and financial summary](data/dashboard.png)
+<img src="data/dashboard.png" alt="Dashboard showing the standing Shield Score, risk band, and financial summary" width="480">
 
 This repo holds my solo rebuild of DebtShield, built to a production-grade standard rather than a hackathon prototype. Some highlights of the edits: I found and fixed a variance bug that let one test profile's implied income volatility spike to 412% unflagged, dragging a near-riskless profile's score down to 67.7 - now caught by an explicit coefficient-of-variation check, derived from a stated tail-tolerance assumption rather than guessed. The single-bad-month default trigger became a Basel II-aligned three-consecutive-month rule, and the linear score that undersold mid-range risk became a log-odds transform in the same family that real credit scorecards (like Experian) use. Every Monte Carlo estimate ships with a proper 95% confidence interval, correctly adjusted for the antithetic-pairing variance reduction technique I used to compute it, and the whole engine is checked via a sensitivity analysis and a convergence study.
 
