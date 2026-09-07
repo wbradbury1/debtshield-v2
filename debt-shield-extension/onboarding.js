@@ -83,7 +83,7 @@ function updateAllocDisplay(val) {
   savingsAllocPct = parseInt(val);
   document.getElementById('alloc-display').textContent = `${val}%`;
   const surplus = csvData ? Math.max(0, (csvData.mu_I - csvData.mu_E) * savingsAllocPct / 100) : 0;
-  const surplusStr = csvData ? ` (${fmtUSD(surplus)}/mo)` : '';
+  const surplusStr = csvData ? ` (${fmtMoney(surplus)}/mo)` : '';
   document.getElementById('alloc-sub').textContent =
     `${val}% of your monthly surplus${surplusStr} will be split across your goals by priority.`;
 }
@@ -293,26 +293,26 @@ function renderSummary() {
 
   document.getElementById('summary-grid').innerHTML = `
     <div class="summary-item"><div class="s-label">Name</div><div class="s-value" style="color:var(--text)">${name}</div></div>
-    <div class="summary-item"><div class="s-label">Starting Balance</div><div class="s-value" style="color:${clr(b0val)}">${fmtUSD(b0val)}</div></div>
-    <div class="summary-item"><div class="s-label">Avg Monthly Income</div><div class="s-value" style="color:${clr(muIval)}">${fmtUSD(muIval)}</div></div>
-    <div class="summary-item"><div class="s-label">Avg Monthly Expenses</div><div class="s-value" style="color:${clr(muEval)}">${fmtUSD(muEval)}</div></div>
+    <div class="summary-item"><div class="s-label">Starting Balance</div><div class="s-value" style="color:${clr(b0val)}">${fmtMoney(b0val)}</div></div>
+    <div class="summary-item"><div class="s-label">Avg Monthly Income</div><div class="s-value" style="color:${clr(muIval)}">${fmtMoney(muIval)}</div></div>
+    <div class="summary-item"><div class="s-label">Avg Monthly Expenses</div><div class="s-value" style="color:${clr(muEval)}">${fmtMoney(muEval)}</div></div>
     <div class="summary-item"><div class="s-label">Monthly Surplus</div>
-      <div class="s-value" style="color:${clr(surplus)}">${fmtUSD(surplus)}</div></div>
+      <div class="s-value" style="color:${clr(surplus)}">${fmtMoney(surplus)}</div></div>
     <div class="summary-item"><div class="s-label">Savings Allocation</div>
       <div class="s-value" style="color:var(--green)">${savingsAllocPct}% of surplus</div></div>
     ${totalDebt > 0 ? `<div class="summary-item" style="grid-column:1/-1">
       <div class="s-label">Total Debt Entered</div>
-      <div class="s-value" style="color:var(--red)">${fmtUSD(totalDebt)}</div></div>` : ''}
+      <div class="s-value" style="color:var(--red)">${fmtMoney(totalDebt)}</div></div>` : ''}
   `;
 
   document.getElementById('goals-pills').innerHTML = goals.length
-    ? goals.map((g, i) => `<span class="goal-pill">#${i+1} ${esc(g.name)} — ${fmtUSD(parseFloat(g.amount)||0)}</span>`).join('')
+    ? goals.map((g, i) => `<span class="goal-pill">#${i+1} ${esc(g.name)} — ${fmtMoney(parseFloat(g.amount)||0)}</span>`).join('')
     : `<span class="no-items">No goals added</span>`;
 
   document.getElementById('debts-pills').innerHTML = debts.length
     ? debts.map(d => {
         const tl = d.indefinite ? '∞' : `${d.months}mo`;
-        return `<span class="debt-pill">💳 ${esc(d.label||d.category)} — ${fmtUSD(d.total)} @ ${d.apr}% APR · ${tl}</span>`;
+        return `<span class="debt-pill">💳 ${esc(d.label||d.category)} — ${fmtMoney(d.total)} @ ${d.apr}% APR · ${tl}</span>`;
       }).join('')
     : `<span class="no-items">No debts — nice!</span>`;
 }
@@ -518,12 +518,12 @@ function parseCSV(text, filename) {
 
   // ── Render preview ──
   document.getElementById('csv-filename').textContent    = `${filename} — ${rows.length} transactions`;
-  document.getElementById('csv-b0').textContent          = fmtUSD(b0);
+  document.getElementById('csv-b0').textContent          = fmtMoney(b0);
   document.getElementById('csv-months').textContent      = numMonths;
-  document.getElementById('csv-income').textContent      = fmtUSD(mu_I);
-  document.getElementById('csv-expenses').textContent    = fmtUSD(mu_E);
-  document.getElementById('csv-income-sd').textContent   = fmtUSD(Math.sqrt(var_I));
-  document.getElementById('csv-expense-sd').textContent  = fmtUSD(Math.sqrt(var_E));
+  document.getElementById('csv-income').textContent      = fmtMoney(mu_I);
+  document.getElementById('csv-expenses').textContent    = fmtMoney(mu_E);
+  document.getElementById('csv-income-sd').textContent   = fmtMoney(Math.sqrt(var_I));
+  document.getElementById('csv-expense-sd').textContent  = fmtMoney(Math.sqrt(var_E));
 
   const noteEl = document.getElementById('csv-note');
   if (numMonths < 3) {
@@ -546,7 +546,7 @@ function parseCSV(text, filename) {
         <span class="csv-txn-date">${r.date.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})}</span>
         <span class="csv-txn-name">${esc(r.recipient || '—')}</span>
         <span class="csv-txn-amt" style="color:${r.amount>0?'var(--green)':'var(--red)'}">
-          ${r.amount>0?'+':''}${fmtUSD(r.amount)}
+          ${r.amount>0?'+':''}${fmtMoney(r.amount)}
         </span>
       </div>`).join('');
   }
@@ -570,4 +570,6 @@ function resetCSV() {
 }
 
 function esc(str) { return String(str||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-function fmtUSD(n) { return '$' + parseFloat(n||0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+// Onboarding runs before any settings exist (it's what creates them), so there's
+// no currency preference to read yet - defaults to GBP, matching background.js.
+function fmtMoney(n) { return '£' + parseFloat(n||0).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2}); }

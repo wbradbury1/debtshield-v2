@@ -133,12 +133,12 @@ function updateStats() {
   const surplus = profile.income - profile.expenses;
 
   const surplusEl = document.getElementById('stat-surplus');
-  surplusEl.textContent = fmtUSD(surplus);
+  surplusEl.textContent = fmtMoney(surplus);
   surplusEl.style.color = surplus >= 0 ? 'var(--green)' : 'var(--red)';
 
   const balance   = profile.savings;
   const balanceEl = document.getElementById('stat-balance');
-  balanceEl.textContent = fmtUSD(balance);
+  balanceEl.textContent = fmtMoney(balance);
   balanceEl.style.color = balance >= 0 ? 'var(--green)' : 'var(--red)';
 
   document.getElementById('stat-goals').textContent = goals.length;
@@ -180,10 +180,10 @@ function renderGoals() {
       <div class="item-icon goal">🎯</div>
       <div class="item-main">
         <div class="item-name">${esc(g.name)}</div>
-        <div class="item-meta">${fmtUSD(alloc.monthly)}/mo allocated</div>
+        <div class="item-meta">${fmtMoney(alloc.monthly)}/mo allocated</div>
       </div>
       <div class="${etaClass}">${etaText}</div>
-      <div class="item-amount" style="color:var(--green)">${fmtUSD(g.target)}</div>
+      <div class="item-amount" style="color:var(--green)">${fmtMoney(g.target)}</div>
       <div class="item-actions">
         <button class="icon-btn goal-edit-btn" title="Edit">✎</button>
         <button class="icon-btn del goal-del-btn" title="Delete">✕</button>
@@ -243,7 +243,7 @@ function renderDebts() {
         <div class="item-name">${esc(d.label || d.category)}</div>
         <div class="item-meta">${d.apr}% APR · ${timeline}</div>
       </div>
-      <div class="item-amount" style="color:var(--red)">${fmtUSD(d.total)}</div>
+      <div class="item-amount" style="color:var(--red)">${fmtMoney(d.total)}</div>
       <div class="item-actions">
         <button class="icon-btn debt-edit-btn" title="Edit">✎</button>
         <button class="icon-btn del debt-del-btn" title="Delete">✕</button>
@@ -532,9 +532,9 @@ function parseProfileCSV(text) {
   const var_E  = variance(expenseArr, mu_E);
   const rho_ie = pearsonCorrelation(incomeArr, expenseArr);
   pendingProfileCSV = { b0, mu_I, mu_E, var_I, var_E, rho_ie, months: monthKeys.length };
-  document.getElementById('prof-csv-b0').textContent       = fmtUSD(b0);
-  document.getElementById('prof-csv-income').textContent   = fmtUSD(mu_I);
-  document.getElementById('prof-csv-expenses').textContent = fmtUSD(mu_E);
+  document.getElementById('prof-csv-b0').textContent       = fmtMoney(b0);
+  document.getElementById('prof-csv-income').textContent   = fmtMoney(mu_I);
+  document.getElementById('prof-csv-expenses').textContent = fmtMoney(mu_E);
   document.getElementById('prof-csv-months').textContent   = monthKeys.length;
   document.getElementById('prof-csv-result').classList.add('visible');
 }
@@ -619,8 +619,14 @@ function renderLearn() {
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-function fmtUSD(n) {
-  return '$' + parseFloat(n||0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+// Currency comes from settings (default '£', set in background.js DEFAULTS and
+// changeable from the popup) - the rest of the extension already reads it that
+// way, and this used to hardcode '$'/en-US, so the dashboard disagreed with the
+// checkout modal on the same purchase.
+let currencySymbol = '£';
+
+function fmtMoney(n) {
+  return currencySymbol + parseFloat(n||0).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2});
 }
 
 /* ════════════════════════════════════════
@@ -632,13 +638,15 @@ let apiBase  = urlParams.get('api')  || API_BASE;
 
 // If name wasn't in the URL, try reading it from Chrome extension storage
 async function resolveIdentity() {
-  if (userName) return; // already have it from URL
+  // Settings are read even when the URL already gave us a name, since the
+  // currency lives there and isn't passed in the URL.
   try {
     if (typeof chrome !== 'undefined' && chrome.storage) {
       const data = await chrome.storage.local.get('ds_settings');
       const s = data['ds_settings'] || {};
-      if (s.userName) userName = s.userName;
-      if (s.apiBase)  apiBase  = s.apiBase;
+      if (s.currency) currencySymbol = s.currency;
+      if (!userName && s.userName) userName = s.userName;
+      if (!urlParams.get('api') && s.apiBase) apiBase = s.apiBase;
     }
   } catch (_) {}
   // Update the name chip now that we know who the user is

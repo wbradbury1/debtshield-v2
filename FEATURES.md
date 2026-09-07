@@ -1,6 +1,33 @@
 # Features
 
-This is a full technical reference beyond the README. 
+This is a full technical reference beyond the README.
+
+## Contents
+
+- [The model](#the-model)
+- [Bug fixes](#bug-fixes)
+- [Variance cap (MAX_CV)](#variance-cap-max_cv)
+- [Default definition](#default-definition)
+- [Negative balance interest](#negative-balance-interest)
+- [Monte Carlo simulation](#monte-carlo-simulation)
+- [Antithetic sampling](#antithetic-sampling)
+- [Shield Score](#shield-score)
+- [Confidence interval](#confidence-interval)
+- [Convergence study](#convergence-study)
+- [Sensitivity analysis](#sensitivity-analysis)
+- [Potential extensions](#potential-extensions)
+
+## The model
+
+The engine simulates a household's finances forward a year, many times over, and reports what fraction of those simulated years end in default.
+
+Each simulated year starts from the household's real income, expenses, savings, and any declared debts, estimated from their uploaded bank statement. For each of the 12 months, income and expenses are drawn as random shocks around the household's own historical mean and variance: `income_t = mu_I + sigma_I * Z0` and `expenses_t = mu_E + sigma_E * (rho_IE * Z0 + sqrt(1 - rho_IE^2) * Z1)`, where `rho_IE` is the Pearson correlation between income and expense shocks, estimated from the household's own CSV (see Monte Carlo simulation below for why they're modelled as correlated rather than independent). That month's net cash flow, minus any scheduled debt repayment, updates a running cash balance: `B_t = B_(t-1) + income_t - expenses_t - debt_payments_t`. Any declared debt is charged and paid down on its own schedule at its own interest rate; a negative cash balance itself accrues interest too, at a real UK overdraft rate, since an uncovered shortfall has to be funded somehow.
+
+A household defaults the first time its balance stays negative for three consecutive months - not a single bad month, which matches Basel II's 90-days-past-due convention rather than treating one rough patch as ruin. Running this 200,000 times gives a probability of default: the fraction of simulated years that hit that condition.
+
+That probability is then mapped onto the 0-100 Shield Score through a log-odds transform, `score = offset + factor * ln((1-p)/p)`, the same convention real credit scorecards use, calibrated so a 1% default probability reads as 90 and a 50% (coin-flip) probability reads as 10. Because the score comes from a Monte Carlo estimate, I implemented a 95% confidence interval too, computed from the sampling error on that probability.
+
+Every choice above - why three months and not one, why that particular log-odds calibration, why 200,000 paths, why the confidence interval needs an antithetic-pairing correction - is derived and justified in the sections below.
 
 ## Bug fixes
 
@@ -129,6 +156,10 @@ The engine runs on a fixed seed by default (identical inputs always reproduce th
 | 400,000 | 0.18085 | 0.00043 | 0.00061 | 0.00054 |
 
 Fitted slope of `log(empirical SE)` against `log(N)`: **-0.495**, matching the O(1/√N) rate Monte Carlo theory predicts almost exactly (0.005 off). 
+
+![Monte Carlo convergence and antithetic variance reduction](data/convergence.png)
+
+Both claims are readable straight off the chart: the empirical SE falls in a straight line on log-log axes at the fitted rate, and the antithetic formula SE sits below the iid formula SE at every N. `debt-shield-extension/convergence_plot.py` regenerates it from the CSV.
 
 **Interpretation.** `antithetic formula SE` sits below `iid formula SE` at every N, highlighting the variance reduction in practice. `empirical SE` and `antithetic formula SE` track each other closely, sitting slightly above or below one another at different N, which is expected noise from estimating a standard deviation from 30 reps.
 
